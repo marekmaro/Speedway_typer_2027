@@ -1,6 +1,6 @@
 const { Season, Match, Prediction, LongTerm, CupMatch, Player } = require('../models/Database');
 const { LEGACY_SEASON, DEFAULT_STAGE_NAMES } = require('../config');
-const { calculatePoints, scoringOf, uniqueTeams, stageNamesOf } = require('./scoring');
+const { settle, scoringOf, uniqueTeams, stageNamesOf, indexMatches } = require('./scoring');
 
 /** Aktywny sezon; jeśli baza jest pusta, tworzy go automatycznie. */
 async function getActiveSeason() {
@@ -81,14 +81,28 @@ async function bootstrap() {
     return season;
 }
 
+/**
+ * Zapisuje punkty tylko tam, gdzie się zmieniły - jednym bulkWrite zamiast N zapisów.
+ * Przy 30 graczach i 4 meczach kolejki to 1 zapytanie zamiast 120.
+ */
+async function applySettlement(preds, byId, scoring) {
+    const ops = [];
+    for (const p of preds) {
+        const next = settle(p, byId[p.matchId], scoring);
+        if (p.pointsEarned !== next.pointsEarned || (p.outcome || null) !== next.outcome) {
+            ops.push({ updateOne: { filter: { _id: p._id }, update: { $set: next } } });
+        }
+    }
+    if (ops.length) await Prediction.bulkWrite(ops, { ordered: false });
+    return ops.length;
+}
+
 /** Przeliczenie punktów dla jednego meczu. */
 async function recalcMatch(match, season) {
     const scoring = scoringOf(season);
-    const preds = await Prediction.find({ season: match.season, matchId: String(match._id) });
-    for (const p of preds) {
-        p.pointsEarned = calculatePoints(p.homePred, p.awayPred, match.homeScore, match.awayScore, p.usedJoker, match.isMatchOfTheRound, scoring);
-        await p.save();
-    }
+    const preds = await Prediction.find({ season: match.season, matchId: String(match._id) })
+        .select('_id matchId homePred awayPred usedJoker pointsEarned outcome').lean();
+    await applySettlement(preds, { [String(match._id)]: match }, scoring);
     return preds.length;
 }
 
@@ -96,23 +110,10 @@ async function recalcMatch(match, season) {
 async function recalcSeason(year) {
     const season = await Season.findOne({ year });
     const scoring = scoringOf(season);
-    const matches = await Match.find({ season: year });
-    const byId = {};
-    matches.forEach(m => { byId[String(m._id)] = m; });
-
-    const preds = await Prediction.find({ season: year });
-    let changed = 0;
-    for (const p of preds) {
-        const m = byId[p.matchId];
-        const next = m
-            ? calculatePoints(p.homePred, p.awayPred, m.homeScore, m.awayScore, p.usedJoker, m.isMatchOfTheRound, scoring)
-            : null;
-        if (p.pointsEarned !== next) {
-            p.pointsEarned = next;
-            await p.save();
-            changed++;
-        }
-    }
+    const matches = await Match.find({ season: year }).lean();
+    const preds = await Prediction.find({ season: year })
+        .select('_id matchId homePred awayPred usedJoker pointsEarned outcome').lean();
+    const changed = await applySettlement(preds, indexMatches(matches), scoring);
     return { predictions: preds.length, changed };
 }
 

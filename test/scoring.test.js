@@ -3,6 +3,7 @@ const assert = require('assert');
 const S = require('../services/scoring');
 const { generateSchedule } = require('../services/schedule');
 const { DEFAULT_SCORING } = require('../config');
+const scraper = require('../services/scraper');
 
 let passed = 0;
 function test(name, fn) {
@@ -30,8 +31,15 @@ test('pudło z jokerem to nadal 0', () => assert.strictEqual(pts(50, 40, 40, 50,
 
 console.log('\nBlokada typów:');
 const match = { matchDate: new Date('2027-05-01T18:00:00Z') };
-test('otwarte 25 h przed', () => assert.strictEqual(S.isLocked(match, 24, new Date('2027-04-30T17:00:00Z').getTime()), false));
-test('zamknięte 23 h przed', () => assert.strictEqual(S.isLocked(match, 24, new Date('2027-04-30T19:00:00Z').getTime()), true));
+const at = iso => new Date(iso).getTime();
+test('blokada 24 h (1440 min): otwarte 25 h przed', () => assert.strictEqual(S.isLocked(match, 1440, at('2027-04-30T17:00:00Z')), false));
+test('blokada 24 h (1440 min): zamknięte 23 h przed', () => assert.strictEqual(S.isLocked(match, 1440, at('2027-04-30T19:00:00Z')), true));
+test('blokada 1 min: otwarte 2 min przed startem', () => assert.strictEqual(S.isLocked(match, 1, at('2027-05-01T17:58:00Z')), false));
+test('blokada 1 min: zamknięte 59 s przed startem', () => assert.strictEqual(S.isLocked(match, 1, at('2027-05-01T17:59:01Z')), true));
+test('zamrożone typy (przełożony po blokadzie) są zamknięte mimo dalekiej daty', () =>
+    assert.strictEqual(S.isLocked({ ...match, predictionsFrozen: true }, 1, at('2027-04-01T12:00:00Z')), true));
+test('sezon v2 bez lockMinutes używa lockHours', () => assert.strictEqual(S.lockMinutesOf({ lockHours: 24, lockMinutes: null }), 1440));
+test('sezon v3 używa lockMinutes', () => assert.strictEqual(S.lockMinutesOf({ lockHours: 24, lockMinutes: 1 }), 1));
 
 console.log('\nTabela ligowa:');
 const teams = ['A', 'B'];
@@ -73,7 +81,7 @@ test('najlepsza runda Ali to R2 (10 pkt)', () => assert.deepStrictEqual(stats[0]
 
 console.log('\nMaskowanie typów przed blokadą:');
 const future = [{ _id: 'f1', matchDate: new Date(Date.now() + 5 * 24 * 3600 * 1000), homeScore: null, round: 3 }];
-const masked = S.maskPredictions([{ _id: 'p', matchId: 'f1', nickname: 'Ala', homePred: 46, awayPred: 44, usedJoker: true }], future, 24);
+const masked = S.maskPredictions([{ _id: 'p', matchId: 'f1', nickname: 'Ala', homePred: 46, awayPred: 44, usedJoker: true }], future, 1440);
 test('typ przyszłego meczu jest ukryty', () => {
     assert.strictEqual(masked[0].hidden, true);
     assert.strictEqual(masked[0].homePred, null);
@@ -108,5 +116,104 @@ test('tydzień przerwy po wskazanej kolejce', () => {
     assert.ok((r4 - r3) / 86400000 > 10);
 });
 test('nieparzysta liczba drużyn = błąd', () => assert.throws(() => generateSchedule({ teams: ['A', 'B', 'C'], startDate: '2027-04-05' })));
+
+console.log('\nSytuacje żużlowe:');
+test('anulowany mecz (walkower) nie daje punktów', () => {
+    const r = S.settle({ homePred: 40, awayPred: 0, usedJoker: false }, { homeScore: 40, awayScore: 0, voidPredictions: true }, sc);
+    assert.deepStrictEqual(r, { pointsEarned: null, outcome: null });
+});
+test('joker na anulowanym meczu nie jest zużyty', () => {
+    const ms = [{ _id: 'v', round: 1, homeTeam: 'A', awayTeam: 'B', homeScore: 40, awayScore: 0, voidPredictions: true, matchDate: '2027-04-10' }];
+    const st = S.buildPlayerStats({ players: [{ nickname: 'Ala' }], predictions: [{ nickname: 'Ala', matchId: 'v', homePred: 50, awayPred: 40, usedJoker: true, pointsEarned: null }], matches: ms, longTerms: [] });
+    assert.strictEqual(st[0].jokerUsed, false);
+    assert.strictEqual(st[0].settled, 0);
+});
+test('walkower liczy się do tabeli ligi', () => {
+    const ms = [{ _id: 'w', round: 1, homeTeam: 'A', awayTeam: 'B', homeScore: 40, awayScore: 0, isWalkover: true, voidPredictions: true, matchDate: '2027-04-10' }];
+    assert.strictEqual(S.buildStandings(ms, ['A', 'B']).find(t => t.name === 'A').points, 2);
+});
+test('ręczna korekta tabeli (np. -2 pkt za walkower)', () => {
+    const t = S.buildStandings(matches, teams, [], [{ team: 'B', points: -2, reason: 'walkower' }]);
+    const b = t.find(x => x.name === 'B');
+    assert.strictEqual(b.points, 0);
+    assert.strictEqual(b.adjustment, -2);
+});
+test('remis w dwumeczu = brak bonusu', () => {
+    const ms = [
+        { _id: '1', round: 1, homeTeam: 'A', awayTeam: 'B', homeScore: 50, awayScore: 40, matchDate: '2027-04-10' },
+        { _id: '2', round: 8, homeTeam: 'B', awayTeam: 'A', homeScore: 50, awayScore: 40, matchDate: '2027-06-10' }
+    ];
+    const t = S.buildStandings(ms, ['A', 'B']);
+    assert.strictEqual(t.find(x => x.name === 'A').bonus + t.find(x => x.name === 'B').bonus, 0);
+});
+
+console.log('\nStatystyki:');
+test('rodzaj trafienia', () => {
+    assert.strictEqual(S.outcomeOf(46, 44, 46, 44), 'exact');
+    assert.strictEqual(S.outcomeOf(47, 43, 46, 42), 'diff');
+    assert.strictEqual(S.outcomeOf(50, 40, 46, 44), 'winner');
+    assert.strictEqual(S.outcomeOf(40, 50, 46, 44), 'miss');
+});
+test('przebieg sezonu: suma narastająco i miejsce po kolejce', () => {
+    const pr = S.buildRoundProgress(stats, matches);
+    assert.deepStrictEqual(pr.rounds, [1, 2]);
+    assert.deepStrictEqual(pr.series.Ala.map(x => x.total), [5, 15]);
+    assert.strictEqual(pr.series.Ala[1].position, 1);
+    assert.strictEqual(pr.series.Bob[0].position, 2);
+});
+test('H2H liczy tylko wspólne, rozliczone mecze', () => {
+    const h = S.buildH2H('Ala', 'Bob', predictions, matches);
+    assert.strictEqual(h.matches, 1);
+    assert.strictEqual(h.winsA, 1);
+    assert.strictEqual(h.pointsA, 5);
+    assert.strictEqual(h.pointsB, 0);
+});
+test('ranking wszech czasów sumuje sezony i liczy tytuły', () => {
+    const at2 = S.buildAllTime([
+        { year: 2026, isFinished: true, stats: [{ nickname: 'Ala', points: 100, settled: 50, perfects: 5, diffs: 5, winners: 20, misses: 20, position: 1 }, { nickname: 'Bob', points: 90, settled: 50, perfects: 3, diffs: 5, winners: 20, misses: 22, position: 2 }] },
+        { year: 2027, isFinished: false, stats: [{ nickname: 'Bob', points: 30, settled: 10, perfects: 1, diffs: 1, winners: 5, misses: 3, position: 1 }] }
+    ]);
+    assert.strictEqual(at2[0].nickname, 'Bob');
+    assert.strictEqual(at2[0].points, 120);
+    assert.deepStrictEqual(at2[1].titles, [2026]);
+    assert.deepStrictEqual(at2[0].titles, []);
+});
+
+console.log('\nScraper (parsowanie bez sieci):');
+const T8 = ['Orlen Oil Motor Lublin', 'Betard Sparta Wrocław', 'PRES Grupa Deweloperska Toruń', 'Gezet Stal Gorzów',
+    'Stal Rzeszów', 'Fogo Unia Leszno', 'Unia Tarnów', 'Bayersystem GKM Grudziądz'];
+const matcher = scraper.buildTeamMatcher(T8, { 'PRES Grupa Deweloperska Toruń': ['Apator'] });
+test('słowa wspólne dwóch drużyn (Stal, Unia) nie są aliasami', () => {
+    assert.ok(!matcher.aliases['Gezet Stal Gorzów'].includes('stal'));
+    assert.ok(!matcher.aliases['Fogo Unia Leszno'].includes('unia'));
+});
+test('wiersz tabeli bez sponsorów w nazwach', () => {
+    const c = scraper.extractCandidates('<table><tr><td>Motor Lublin</td><td>52 : 38</td><td>Sparta Wrocław</td></tr></table>', matcher);
+    assert.strictEqual(c.length, 1);
+    assert.deepStrictEqual([c[0].home, c[0].away, c[0].homeScore, c[0].awayScore], ['Orlen Oil Motor Lublin', 'Betard Sparta Wrocław', 52, 38]);
+});
+test('alias admina (Apator = Toruń)', () => {
+    const c = scraper.extractCandidates('<ul><li>Apator 47:43 Stal Gorzów</li></ul>', matcher);
+    assert.strictEqual(c[0].home, 'PRES Grupa Deweloperska Toruń');
+});
+test('godzina 20:30 nie jest wynikiem', () => {
+    assert.strictEqual(scraper.extractCandidates('<p>Unia Leszno - GKM Grudziądz, start 20:30</p>', matcher).length, 0);
+});
+test('odmiana nazw ("pokonał Spartę w Lublinie")', () => {
+    const c = scraper.extractCandidates('<p>Motor pokonał Spartę 50:40.</p>', matcher);
+    assert.strictEqual(c.length, 1);
+    assert.strictEqual(c[0].away, 'Betard Sparta Wrocław');
+});
+test('blok z kilkoma meczami jest pomijany (nie zgadujemy)', () => {
+    const html = '<div>Motor Lublin 50:40 Sparta Wrocław oraz Unia Leszno 46:44 GKM Grudziądz</div>';
+    assert.strictEqual(scraper.extractCandidates(html, matcher).filter(c => c.snippet.includes('oraz')).length, 0);
+});
+test('kontrola sensowności: suma > 90 blokuje', () => assert.ok(scraper.sanityCheck(60, 40).blockers.length));
+test('kontrola sensowności: stan w trakcie meczu (< 8 biegów) blokuje', () => assert.ok(scraper.sanityCheck(25, 17).blockers.length));
+test('kontrola sensowności: 46:44 jest czyste', () => {
+    const r = scraper.sanityCheck(46, 44);
+    assert.strictEqual(r.blockers.length + r.warnings.length, 0);
+});
+test('kontrola sensowności: 40:38 ostrzega (mecz skrócony?)', () => assert.ok(scraper.sanityCheck(40, 38).warnings.length));
 
 console.log(`\n${passed} testów przeszło.\n`);

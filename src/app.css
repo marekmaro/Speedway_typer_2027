@@ -1,0 +1,157 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------
+   Tokeny kolorów. Jasny motyw domyślnie, ciemny według ustawień telefonu.
+   Wszystkie komponenty używają tokenów, więc dark mode działa bez dublowania klas.
+------------------------------------------------------------------- */
+@layer base {
+    :root {
+        --bg: 241 244 249;
+        --surface: 255 255 255;
+        --raised: 247 249 252;
+        --line: 226 232 240;
+        --ink: 15 23 42;
+        --muted: 82 96 117;
+        --faint: 148 163 184;
+        --brand: 220 38 38;        /* czerwień toru / kevlaru */
+        --brand-ink: 255 255 255;
+        --gold: 202 138 4;         /* Złoty Kask */
+        --ok: 22 163 74;
+        --bad: 220 38 38;
+        --warn: 217 119 6;
+        --night: 11 18 32;         /* nagłówek - "mecz przy sztucznym świetle" */
+        color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg: 9 14 26;
+            --surface: 17 24 39;
+            --raised: 24 33 51;
+            --line: 39 51 74;
+            --ink: 236 241 248;
+            --muted: 160 174 196;
+            --faint: 100 116 139;
+            --brand: 248 82 82;
+            --brand-ink: 20 6 6;
+            --gold: 234 179 8;
+            --ok: 74 222 128;
+            --bad: 248 113 113;
+            --warn: 251 191 36;
+            --night: 5 9 18;
+            color-scheme: dark;
+        }
+    }
+
+    html { -webkit-tap-highlight-color: transparent; }
+    body {
+        @apply bg-bg text-ink font-sans antialiased;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+    /* Pola liczbowe bez strzałek - na telefonie i tak jest klawiatura numeryczna */
+    input[type=number]::-webkit-outer-spin-button,
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+    :focus-visible { outline: 2px solid rgb(var(--brand)); outline-offset: 2px; }
+}
+
+@layer components {
+    .card { @apply bg-surface border border-line rounded-2xl shadow-card; }
+    .card-pad { @apply p-4 sm:p-5; }
+    .section-title { @apply text-base font-extrabold tracking-tight text-ink; }
+    .eyebrow { @apply text-[11px] font-bold uppercase tracking-wider text-muted; }
+
+    .btn {
+        @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 min-h-[44px] text-sm font-bold
+               transition active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none select-none;
+    }
+    .btn-primary { @apply btn bg-brand text-brand-ink hover:brightness-110; }
+    .btn-ghost { @apply btn bg-raised text-ink border border-line hover:bg-line/60; }
+    .btn-ok { @apply btn bg-ok text-white hover:brightness-110; }
+    .btn-danger { @apply btn bg-bad/10 text-bad border border-bad/30 hover:bg-bad/20; }
+    .btn-sm { @apply min-h-[36px] px-3 text-xs rounded-lg; }
+
+    .input {
+        @apply w-full rounded-xl border border-line bg-raised px-3 min-h-[44px] text-base text-ink
+               placeholder:text-faint focus:border-brand focus:outline-none;
+    }
+    .label { @apply block text-[11px] font-bold uppercase tracking-wider text-muted mb-1; }
+
+    .chip { @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold whitespace-nowrap; }
+    .chip-muted { @apply chip bg-raised text-muted border border-line; }
+    .chip-ok { @apply chip bg-ok/10 text-ok; }
+    .chip-bad { @apply chip bg-bad/10 text-bad; }
+    .chip-warn { @apply chip bg-warn/15 text-warn; }
+    .chip-gold { @apply chip bg-gold/15 text-gold; }
+    .chip-brand { @apply chip bg-brand/10 text-brand; }
+
+    /* Przełącznik kolejek: przewijany poziomo pasek */
+    .scroller { @apply flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 snap-x; scrollbar-width: none; }
+    .scroller::-webkit-scrollbar { display: none; }
+    .round-chip {
+        @apply snap-start shrink-0 rounded-full border border-line bg-surface px-3.5 min-h-[40px] text-sm font-bold text-muted
+               inline-flex items-center;
+    }
+    .round-chip[aria-current="true"] { @apply bg-ink text-bg border-ink; }
+
+    /* Dolna nawigacja (telefon) */
+    .tabbar {
+        @apply fixed bottom-0 inset-x-0 z-40 bg-surface/95 backdrop-blur border-t border-line grid md:hidden;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+    .tab-link { @apply flex flex-col items-center justify-center gap-0.5 min-h-[56px] text-[11px] font-bold text-muted; }
+    .tab-link[aria-current="page"] { @apply text-brand; }
+    .tab-link svg { @apply w-6 h-6; }
+    .toplink { @apply px-3 py-2 rounded-lg text-sm font-bold text-white/70 hover:text-white; }
+    .toplink[aria-current="page"] { @apply bg-white/10 text-white; }
+
+    /* Pole typu: duże cyfry pod kciuk */
+    .score-input {
+        @apply w-16 h-14 rounded-xl border-2 border-line bg-raised text-center text-2xl font-black text-ink
+               focus:border-brand focus:outline-none disabled:opacity-60 disabled:bg-transparent;
+    }
+    .score-input.filled { @apply border-ok/50; }
+
+    .team-logo { @apply w-7 h-7 object-contain shrink-0; }
+    .team-logo-lg { @apply w-10 h-10 object-contain shrink-0; }
+    .team-badge {
+        @apply inline-flex items-center justify-center w-7 h-7 rounded-full bg-night text-white text-[9px] font-black shrink-0;
+    }
+    .team-logo-lg + .team-badge, .team-badge.lg { @apply w-10 h-10 text-[11px]; }
+
+    .form-dot { @apply inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-black text-white; }
+    .form-w { @apply bg-ok; }
+    .form-l { @apply bg-bad; }
+    .form-d { @apply bg-faint; }
+    .form-none { @apply bg-line text-transparent; }
+
+    .skeleton { @apply animate-pulse bg-line/70 rounded-xl; }
+}
+
+/* Powiadomienia (toast) */
+.toast-box {
+    position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom));
+    transform: translate(-50%, 1rem); opacity: 0; pointer-events: none; z-index: 200;
+    padding: .7rem 1.2rem; border-radius: 999px; font-weight: 700; font-size: .85rem; color: #fff;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .25); transition: transform .2s ease, opacity .2s ease;
+    max-width: 92vw; text-align: center;
+}
+.toast-box.show { transform: translate(-50%, 0); opacity: 1; }
+.toast-ok { background: rgb(22 163 74); }
+.toast-err { background: rgb(220 38 38); }
+@media (min-width: 768px) { .toast-box { bottom: 1.5rem; } }
+
+/* Wykresy (gracz.html) */
+.chart-tip {
+    position: absolute; pointer-events: none; z-index: 10; white-space: nowrap;
+    @apply rounded-lg bg-ink text-bg text-xs font-semibold px-2.5 py-1.5 shadow-card;
+}
+
+@media print {
+    .no-print, .tabbar { display: none !important; }
+    body { background: #fff; }
+}
+@media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+}

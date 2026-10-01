@@ -51,7 +51,7 @@ class Query {
     catch(fn) { return this.then(undefined, fn); }
 }
 
-function makeModel(name, defaults = {}) {
+function makeModel(name, defaults = {}, unique = null) {
     const rows = [];
     const decorate = doc => {
         Object.defineProperty(doc, 'save', { value: async () => doc, enumerable: false, configurable: true });
@@ -66,6 +66,9 @@ function makeModel(name, defaults = {}) {
         findById: id => new Query(() => rows.find(r => String(r._id) === String(id)) || null),
         countDocuments: q => new Query(() => rows.filter(r => matches(r, q)).length),
         create: async data => {
+            if (unique && rows.some(r => String(r[unique]) === String(data[unique]))) {
+                const err = new Error(`E11000 duplicate key ${unique}`); err.code = 11000; throw err;
+            }
             const doc = decorate({ _id: newId(), ...defaults, ...data });
             rows.push(doc);
             return doc;
@@ -116,18 +119,30 @@ function makeModel(name, defaults = {}) {
             for (let i = rows.length - 1; i >= 0; i--) if (matches(rows[i], q)) { rows.splice(i, 1); n++; }
             return { deletedCount: n };
         }),
-        aggregate: () => new Query(() => [])
+        aggregate: () => new Query(() => []),
+        bulkWrite: async ops => {
+            for (const op of ops) {
+                if (op.updateOne) await model.updateOne(op.updateOne.filter, op.updateOne.update, { upsert: op.updateOne.upsert });
+                else if (op.insertOne) await model.create(op.insertOne.document);
+                else if (op.deleteOne) await model.deleteOne(op.deleteOne.filter);
+            }
+            return { ok: 1 };
+        }
     };
     return model;
 }
 
 module.exports = function fakeModels() {
     return {
-        Season: makeModel('Season', { isActive: false, isFinished: false, lockHours: 24, teams: [], results: {} }),
-        Match: makeModel('Match', { homeScore: null, awayScore: null, isMatchOfTheRound: false, isPostponed: false, note: '' }),
-        Prediction: makeModel('Prediction', { usedJoker: false, pointsEarned: null, source: 'player' }),
+        Season: makeModel('Season', { isActive: false, isFinished: false, lockHours: 24, lockMinutes: null, teams: [], results: {}, standingsAdjustments: [], scraperUrls: [] }),
+        Match: makeModel('Match', { homeScore: null, awayScore: null, isMatchOfTheRound: false, isPostponed: false, isWalkover: false, voidPredictions: false, predictionsFrozen: false, originalDate: null, note: '' }),
+        Prediction: makeModel('Prediction', { usedJoker: false, pointsEarned: null, outcome: null, source: 'player' }),
         Player: makeModel('Player', { isActive: true, seasons: [] }),
         LongTerm: makeModel('LongTerm', { pointsEarned: 0, champion: '', bronze: '', relegation: '' }),
-        CupMatch: makeModel('CupMatch', { score1: null, score2: null, autoScore: true })
+        CupMatch: makeModel('CupMatch', { score1: null, score2: null, autoScore: true }),
+        ResultDraft: makeModel('ResultDraft', { status: 'draft', warnings: [], blockers: [] }),
+        PushSubscription: makeModel('PushSubscription', { nickname: null, isAdmin: false, failures: 0 }, 'endpoint'),
+        NotificationLog: makeModel('NotificationLog', {}, 'key'),
+        JobRun: makeModel('JobRun', {})
     };
 };
