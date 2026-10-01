@@ -1,8 +1,12 @@
-# Żużlowy Typer 2.0
+# Żużlowy Typer 3.0
 
-Typer żużlowej Ekstraligi dla znajomych: terminarz, wyniki, ranking typerów, Joker, Złoty Kask,
-typy długoterminowe i Puchar Typerów (H2H). Wersja 2.0 obsługuje **wiele sezonów** — bieżący sezon
-gra się normalnie, a nowy przygotowujesz obok i włączasz jednym przyciskiem.
+Typer PGE Ekstraligi dla znajomych: terminarz, wyniki, ranking typerów, Joker, Złoty Kask,
+typy sezonowe, Puchar Typerów i wiele sezonów. Wersja 3 dokłada: aplikację na telefon (PWA),
+półautomatyczne pobieranie wyników, przypomnienia push, statystyki (forma, H2H, ranking
+wszech czasów) i obsługę żużlowych sytuacji spornych (deszcz, walkower, korekty tabeli).
+
+**Stos:** Node.js 22 + Express · MongoDB (Mongoose) · HTML + vanilla JS + Tailwind CSS (budowany) ·
+cheerio (scraper) · web-push (VAPID) · hosting Render + MongoDB Atlas.
 
 ---
 
@@ -28,27 +32,143 @@ stare tokeny mógł ktoś już mieć. Po wdrożeniu warto w panelu (zakładka *G
 
 ---
 
-## Instalacja
+## Szybki start
 
 ```bash
 npm install
-cp .env.example .env     # i uzupełnij dane
-npm start                # produkcyjnie
-npm run dev              # z auto-restartem (nodemon)
-npm test                 # 61 testów, nie wymaga bazy
+cp .env.example .env     # uzupełnij MONGODB_URI i ADMIN_PASSWORD
+npm run build:css        # Tailwind -> public/css/app.css (plik jest też w repo)
+npm start                # http://localhost:3000
+npm test                 # 101 testów, bez bazy
+npm run demo             # cała aplikacja na przykładowych danych, BEZ MongoDB (admin: "demo")
 ```
 
-Plik `.env`:
+Kontrola stanu: `GET /healthz` (baza, push).
 
-```
-MONGODB_URI=mongodb+srv://user:haslo@klaster.mongodb.net/zuzel-typer
-ADMIN_PASSWORD=dlugie-haslo-admina
-PORT=3000
-LEGACY_SEASON=2026
-```
+## Wdrożenie na Render
 
-Serwer nie wystartuje bez `MONGODB_URI` (zamiast cicho działać z pustą bazą, jak wcześniej).
-Kontrola stanu: `GET /healthz`.
+1. **MongoDB Atlas:** darmowy klaster M0 w regionie *Frankfurt*, użytkownik bazy z długim hasłem,
+   Network Access: `0.0.0.0/0` (Render nie ma stałego IP na planie free).
+2. **Klucze push:** `npm run vapid` → zapisz `publicKey` i `privateKey`.
+3. **Render → New → Blueprint** → wskaż repozytorium. `render.yaml` tworzy usługę web
+   (Frankfurt, Node 22, build `npm ci && npm run build:css`, health check `/healthz`).
+   W panelu uzupełnij sekrety: `MONGODB_URI`, `ADMIN_PASSWORD`, `VAPID_PUBLIC_KEY`,
+   `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, opcjonalnie `SCRAPER_URLS`. `CRON_SECRET` Render wygeneruje sam.
+4. **Zadania w tle na planie free.** Darmowa instancja zasypia po 15 min, więc wbudowany
+   harmonogram wtedy nie działa. Workflow `.github/workflows/cron.yml` co 30 min (10–22 UTC,
+   marzec–październik) budzi serwer i wywołuje `POST /api/cron/run`. W GitHub → *Settings → Secrets
+   → Actions* dodaj `APP_URL` (adres z Render) i `CRON_SECRET` (skopiuj z Render).
+   Alternatywy: cron-job.org z tym samym adresem i nagłówkiem `x-cron-secret`, albo plan *Starter*
+   (bez usypiania, wtedy wystarczy wbudowany harmonogram).
+
+Wszystkie zmienne opisuje `.env.example`.
+
+## Zasady gry
+
+Typuje się **wynik meczu** (np. 47:43). Punktacja i blokada są ustawiane per sezon w panelu
+(*Sezony → Ustawienia*), a regulamin na stronie generuje się z tych ustawień.
+
+- **5 pkt** dokładny wynik · **3 pkt** zwycięzca + dokładna różnica · **2 pkt** zwycięzca · **0** pudło
+- **Złoty Kask:** w wyróżnionym meczu kolejki trafienie za 5 lub 3 pkt daje **+1**
+- **Joker:** raz w sezonie ×2 za jeden mecz (maks. 12 pkt)
+- **Typy sezonowe:** mistrz / brąz / spadek po **+10**, typowane przed pierwszym meczem
+- **Puchar Typerów:** pary według rankingu, wygrywa lepszy wynik w wyznaczonej kolejce
+- **Blokada:** domyślnie **1 minuta przed pierwszym biegiem** (nowe sezony). Sezony z wersji 2
+  zachowują swoje 24 h, dopóki admin tego nie zmieni.
+
+### Sytuacje żużlowe
+
+| Sytuacja | Jak to działa |
+|---|---|
+| Mecz przełożony **przed** blokadą | Typy zostają (wiszą na ID meczu, nie na dacie). Gracze mogą je zmieniać do nowej blokady. Pierwotna data jest pokazywana. |
+| Mecz przełożony **po** blokadzie (deszcz w dniu meczu) | Typy były już jawne → przy zmianie daty zostają **zamrożone** automatycznie. Admin może je świadomie odmrozić. |
+| Przełożony bez nowej daty | Zaznacz „Przełożony — czeka na termin”. Typy zostają, a mecz nie liczy się do odliczania. |
+| Mecz przerwany po ≥ 8 biegach | Wpisz wynik zaliczony przez ligę (np. 40:38) i notatkę. Scraper oznacza sumę < 84 jako „do sprawdzenia”. |
+| Walkower | *Wyniki → Pojedynczy mecz → Walkower*: wynik liczy się do tabeli ligi, typy są anulowane, a Joker wraca do gracza. |
+| Mecz odwołany na stałe | *Terminarz → Typy anulowane*. |
+| Punkt bonusowy za dwumecz | Liczony automatycznie (suma małych punktów z obu meczów; remis = brak bonusu). |
+| Decyzje „przy zielonym stoliku” | *Sezony → Ustawienia → Korekty tabeli*: `drużyna ; punkty ; powód`. Korekta jest widoczna w tabeli z opisem. |
+
+## Wyniki: scraper + zatwierdzanie (półautomat)
+
+Nie ma oficjalnego API, a portale zmieniają HTML. Dlatego scraper **nigdy nie wpisuje wyniku sam**:
+
+1. Co godzinę (albo przez cron/przycisk) pobiera strony z `SCRAPER_URLS` lub z ustawień sezonu.
+2. Bierze tylko mecze, które zaczęły się ≥ 150 min temu (żeby nie złapać stanu w trakcie meczu).
+3. Nie zależy od klas CSS: dzieli stronę na małe bloki tekstu i szuka w nich **dokładnie dwóch
+   drużyn z terminarza** i wyniku `NN:NN` (godziny typu `20:30` są odrzucane). Drużyny rozpoznaje
+   po charakterystycznych słowach nazwy (miasto, przydomek), więc zmiana sponsora nie przeszkadza.
+   Kolejność drużyn rozstrzyga, który mecz dwumeczu to jest. Dodatkowe nazwy ustawisz w
+   *Sezony → Aliasy* (np. `PRES Grupa Deweloperska Toruń = Apator`).
+4. Kontrola sensowności: suma > 90 (15 biegów × 6) albo < 48 (mniej niż 8 biegów) **blokuje**
+   zatwierdzenie bez korekty. Suma < 84, remis albo wynik drużyny spoza 30–60 dają ostrzeżenie.
+   Rozbieżności między źródłami są wypisywane.
+5. Powstaje **draft**, a admin dostaje push. W zakładce *Do zatwierdzenia* widać wynik, fragment
+   tekstu ze źródła i uwagi. „Zatwierdź” (można poprawić liczby) wpisuje wynik, przelicza punkty
+   i wysyła graczom push z ich punktami. Odrzucony wynik nie wraca.
+6. Gdy żadne źródło nic nie zwróci (zmienił się układ strony), admin dostaje raz dziennie alert.
+   Zawsze można wpisać wyniki ręcznie (*Wyniki*).
+
+> Źródła wyników trzeba wskazać samemu i sprawdzić ich regulamin. Parser jest przetestowany na
+> przykładowym HTML; na konkretnej stronie sprawdź go przyciskiem *Pobierz teraz* i dziennikiem w *System*.
+
+## Aplikacja na telefon (PWA) i powiadomienia
+
+- `manifest.webmanifest` jest generowany dynamicznie: gdy gracz doda do ekranu głównego **swój
+  link** (`/typuj.html?id=…`), ikona otwiera od razu jego panel, bez paska przeglądarki.
+- Service worker (`public/sw.js`): szybki start, ostatnie dane offline. Panel admina i zapisy
+  nigdy nie idą przez cache. Po zmianie plików frontu podbij `VERSION` w `sw.js`.
+- **Przypomnienia:** 2 h przed blokadą (`REMINDER_MINUTES`) gracz bez typu dostaje push z listą
+  meczów, raz na mecz. Gracz włącza je w swoim panelu. Na iPhonie działają po dodaniu do ekranu
+  głównego (iOS 16.4+).
+- **Admin:** *System → Powiadamiaj ten telefon* — alert o nowych wynikach do zatwierdzenia.
+
+## Statystyki graczy
+
+- **Profil typera** (`/gracz.html?nick=…`, klik w ranking): kafelki, wykres punktów w kolejkach
+  na tle średniej ligi, wykres miejsca po każdej kolejce, historia typów (tylko po blokadzie),
+  szybkie H2H.
+- **H2H** (*Więcej*): bilans dwóch graczy na wspólnych meczach, w sezonie albo ze wszystkich sezonów.
+- **Ranking wszech czasów:** suma ze wszystkich sezonów, tytuły mistrza typera, średnia, skuteczność.
+- **Ranking sezonu** ze strzałkami awansu/spadku względem poprzedniej kolejki.
+
+## Panel administratora (`/admin`)
+
+| Zakładka | Co tam jest |
+|---|---|
+| Do zatwierdzenia | drafty ze scrapera, „Pobierz teraz”, „Zatwierdź wszystkie bez uwag krytycznych” |
+| Wyniki | cała kolejka naraz, pojedynczy mecz, walkower, push do graczy |
+| Terminarz | zmiana daty/kolejki, przełożenie, zamrożenie/odmrożenie, anulowanie typów, notatka |
+| Gracze | magiczne linki (kopiuj / WhatsApp / **nowy link = reset hasła**), wstrzymanie konta (blokuje typowanie), sezony, „ostatnio widziany”, test push |
+| Typy | ręczna edycja typów (omija blokadę; admin widzi też typy ukryte), typy sezonowe |
+| Puchar | rozstawienie wg rankingu, pary ręcznie, przeliczenie H2H |
+| Sezony | ustawienia (blokada w minutach, punktacja z przeliczeniem, korekty tabeli, aliasy, źródła scrapera), nowy sezon, generator terminarza, import JSON, zamknięcie sezonu |
+| System | powiadomienia, dziennik zadań w tle, przeliczenie, kopia zapasowa, strefa ryzyka |
+
+## Jak przygotować nowy sezon
+
+Bieżący sezon **zostaje nietknięty** — po przełączeniu trafia do archiwum i jest dostępny
+z listy sezonów na stronie głównej oraz w panelu gracza.
+
+1. **Panel → System → „Pobierz kopię (JSON)"** — zawsze przed większą operacją.
+2. **Panel → Sezony → Nowy sezon (krok 1):** rok, nazwa, ile minut przed pierwszym biegiem blokada
+   (domyślnie 1), lista drużyn (jedna na linię — przycisk „Wklej drużyny z bieżącego sezonu"
+   pomaga, potem podmieniasz spadkowicza na beniaminka). Zaznacz „przepisz graczy", jeśli
+   grają ci sami ludzie. Zapisz jako **nieaktywny** — nikt jeszcze nic nie widzi.
+3. **Nowy sezon (krok 2):** wpisz poniedziałek pierwszej kolejki, ustaw godziny meczów
+   (domyślnie piątek 18:00 i 20:30, niedziela 16:00 i 19:15), podaj numery kolejek, po których
+   ma być wolny tydzień, i kliknij **Podgląd**. Generator ułoży dwumecze każdy z każdym
+   (8 drużyn = 14 kolejek po 4 mecze, każda para raz u siebie i raz na wyjeździe).
+   Gdy wygląda dobrze — **Zapisz terminarz**.
+   Alternatywa: wklej oficjalny terminarz jako JSON w polu importu.
+4. **Zakładka Terminarz:** popraw pojedyncze daty i zaznacz mecze kolejki (Złoty Kask).
+5. Gdy stary sezon się skończy: **Sezony → Zamknięcie sezonu** — wskaż mistrza, brąz
+   i spadkowicza, rozlicz typy długoterminowe, zaznacz „oznacz jako zakończony".
+6. **„Ustaw aktywny"** przy nowym sezonie. Strona główna przełącza się na nowy sezon,
+   gracze wchodzą tymi samymi linkami.
+
+Faza play-off: kolejki, które mają własną nazwę w ustawieniach sezonu (domyślnie 15–20),
+nie wchodzą do tabeli ligowej, ale normalnie się typuje i punktuje.
 
 ## Migracja z wersji 1
 
@@ -66,23 +186,48 @@ Nic nie musisz robić ręcznie. Przy pierwszym uruchomieniu serwer:
 Kolejność wdrożenia, którą polecam: kopia zapasowa starej bazy → zmiana hasła Atlas →
 wdrożenie 2.0 → sprawdzenie konsoli → regeneracja linków graczy.
 
+## Wydajność
+
+- Przeliczenie meczu/sezonu: jeden `bulkWrite` zamiast zapisu każdego typu osobno, a zapisywane są
+  tylko typy, którym zmieniły się punkty.
+- Zapis typów gracza: jeden `bulkWrite` na całą kolejkę.
+- Rodzaj trafienia (`outcome`) jest zapisywany przy rozliczeniu, więc statystyki nie muszą łączyć typów z meczami.
+- Strona główna, profile i H2H są w cache w pamięci (15 s), czyszczonym po każdym zapisie.
+- Indeksy: `(sezon, gracz, mecz)` unikalny, `matchId`, `(sezon, data meczu)`.
+- Obliczenia rankingu są liniowe względem liczby typów; przy kilkudziesięciu graczach to milisekundy.
+
 ## Struktura
 
 ```
-server.js                 start serwera, statyczne pliki, obsługa błędów
-config/index.js           stałe: punktacja, blokada, nazwy rund finałowych
-models/Database.js        schematy Mongo + indeksy unikalne
-services/scoring.js       punkty, tabela, ranking, maskowanie typów (czyste funkcje)
-services/schedule.js      generator terminarza (karuzela Bergera)
-services/seasons.js       sezony, migracja, przeliczanie punktów
-middleware/auth.js        logowanie admina, sesje, limity żądań
-routes/publicRoutes.js    API strony i panelu gracza
-routes/adminRoutes.js     API panelu administratora
-public/                   frontend (index, typuj, admin + wspólny js/shared.js)
-test/                     61 testów: jednostkowe + integracyjne na atrapie bazy
+server.js                 start, manifest PWA, service worker, statyczne pliki
+render.yaml               blueprint Render
+config/index.js           stałe: punktacja, blokada, progi scrapera i przypomnień
+models/Database.js        schematy Mongo (+ drafty wyników, subskrypcje push, dzienniki)
+services/scoring.js       punkty, tabela, ranking, przebieg sezonu, H2H, all-time (czyste funkcje)
+services/seasons.js       sezony, migracja, przeliczanie (bulkWrite)
+services/results.js       zapis wyniku (ręczny i ze scrapera) + push z punktami
+services/scraper.js       pobieranie wyników, dopasowanie drużyn, kontrola sensowności
+services/push.js          Web Push (VAPID), deduplikacja powiadomień
+services/jobs.js          scraper + przypomnienia, harmonogram
+services/cache.js         cache odczytów
+routes/                   API publiczne, admina i wyzwalacz cron
+public/                   index (strona główna), typuj (panel gracza), gracz (profil), admin, sw.js
+src/app.css               źródło Tailwind (tokeny kolorów, jasny/ciemny motyw)
+scripts/                  demo bez bazy, generator ikon
+test/                     testy jednostkowe + integracyjne na atrapie bazy
+.github/workflows/        testy + cron budzący Render
 ```
 
-## Co zostało naprawione
+## Uwagi techniczne
+
+- Logo drużyn są linkowane z zewnętrznego serwisu. Gdy nie działają, pojawia się plakietka z
+  inicjałami. Docelowo lepiej wrzucić pliki do `public/logos/` i podmienić mapę `LOGOS` w `public/js/shared.js`.
+- Sesje admina, limity żądań i cache są w pamięci procesu: przy jednej instancji (Render) to
+  wystarcza. Restart wylogowuje panel.
+- Po zmianie klas w HTML/JS uruchom `npm run build:css` (Render robi to przy każdym deployu).
+- `test/fake-db.js` to atrapa Mongo dla testów i trybu demo — nie jest używana na produkcji.
+
+### Co naprawiła wersja 2
 
 | Problem w wersji 1 | Rozwiązanie |
 |---|---|
@@ -100,67 +245,3 @@ test/                     61 testów: jednostkowe + integracyjne na atrapie bazy
 | Terminarz fazy finałowej wpisany na sztywno w HTML | generowany z danych, więc nie trzeba go przepisywać co rok |
 | Brak logo dla nowej drużyny psuło widok | zastępcza plakietka z inicjałami |
 
-## Jak przygotować nowy sezon
-
-Bieżący sezon **zostaje nietknięty** — po przełączeniu trafia do archiwum i jest dostępny
-z listy sezonów na stronie głównej oraz w panelu gracza.
-
-1. **Panel → 7. System → „Pobierz kopię (JSON)"** — zawsze przed większą operacją.
-2. **Panel → 6. Sezony → Nowy sezon (krok 1):** rok, nazwa, ile godzin przed meczem blokada
-   (domyślnie 24), lista drużyn (jedna na linię — przycisk „Wklej drużyny z bieżącego sezonu"
-   pomaga, potem podmieniasz spadkowicza na beniaminka). Zaznacz „przepisz graczy", jeśli
-   grają ci sami ludzie. Zapisz jako **nieaktywny** — nikt jeszcze nic nie widzi.
-3. **Nowy sezon (krok 2):** wpisz poniedziałek pierwszej kolejki, ustaw godziny meczów
-   (domyślnie piątek 18:00 i 20:30, niedziela 16:00 i 19:15), podaj numery kolejek, po których
-   ma być wolny tydzień, i kliknij **Podgląd**. Generator ułoży dwumecze każdy z każdym
-   (8 drużyn = 14 kolejek po 4 mecze, każda para raz u siebie i raz na wyjeździe).
-   Gdy wygląda dobrze — **Zapisz terminarz**.
-   Alternatywa: wklej oficjalny terminarz jako JSON w polu importu.
-4. **Zakładka 2. Terminarz:** popraw pojedyncze daty i zaznacz mecze kolejki (Złoty Kask).
-5. Gdy stary sezon się skończy: **6. Sezony → Zamknięcie sezonu** — wskaż mistrza, brąz
-   i spadkowicza, rozlicz typy długoterminowe, zaznacz „oznacz jako zakończony".
-6. **„Ustaw aktywny"** przy nowym sezonie. Strona główna przełącza się na nowy sezon,
-   gracze wchodzą tymi samymi linkami.
-
-Faza play-off: kolejki, które mają własną nazwę w ustawieniach sezonu (domyślnie 15–20),
-nie wchodzą do tabeli ligowej, ale normalnie się typuje i punktuje.
-
-## Zasady gry (konfigurowalne per sezon)
-
-- **5 pkt** — dokładny wynik
-- **3 pkt** — dobry zwycięzca i dokładna różnica punktowa
-- **2 pkt** — dobry zwycięzca
-- **0 pkt** — pudło
-- **Złoty Kask** — w wyróżnionym meczu kolejki trafienie na 5 lub 3 pkt daje **+1 pkt**
-- **Joker** — raz w sezonie mnoży dorobek z jednego meczu **x2** (maksimum z meczu: 12 pkt)
-- **Typy długoterminowe** — mistrz / brąz / spadek, po **+10 pkt**, typowane przed
-  pierwszym meczem sezonu
-- **Puchar Typerów** — pary rozstawiane wg rankingu (1 vs ostatni), wygrywa ten, kto zdobędzie
-  więcej punktów w wyznaczonej kolejce
-
-Regulamin na stronie generuje się z tych ustawień, więc po zmianie punktacji nie trzeba
-poprawiać tekstu.
-
-## Codzienna obsługa
-
-- **Po każdej kolejce:** panel → *1. Wyniki* → wybierz kolejkę → wpisz cztery wyniki →
-  „Zapisz wyniki kolejki". Punkty przeliczają się same.
-- **Mecz odwołany:** *2. Terminarz* → zaznacz „odwołany", po ustaleniu nowej daty wpisz ją —
-  blokada policzy się od nowa, typy zostają.
-- **Ktoś podał typ SMS-em:** *4. Typy graczy* → wybierz gracza i kolejkę → wpisz i zapisz
-  (omija blokadę czasową).
-- **Puchar:** *5. Puchar* → „Rozstaw pary", a po kolejce „Przelicz wyniki H2H".
-- **Nowy uczestnik w trakcie sezonu:** *3. Gracze* → dodaj → „Kopiuj link" lub „WhatsApp".
-
-## Uwagi techniczne
-
-- Logo drużyn są linkowane z zewnętrznego serwisu (zostały z wersji 1). Gdy przestaną się
-  ładować, w miejscu obrazka pojawi się plakietka z inicjałami — strona nie rozjedzie się.
-  Docelowo lepiej wrzucić pliki do `public/logos/` i podmienić mapę `LOGOS` w `public/js/shared.js`.
-- Tailwind wczytywany jest z CDN (`cdn.tailwindcss.com`) — wygodne, ale wymaga internetu
-  u gracza i wypisuje ostrzeżenie w konsoli. Na produkcji można to zamienić na zbudowany plik CSS.
-- Limity żądań są trzymane w pamięci procesu — przy jednym serwerze (Render, Railway, VPS)
-  działają dobrze; przy kilku instancjach każda ma własny licznik.
-- Sesje admina też są w pamięci: restart serwera wylogowuje panel. To celowe i bezpieczne.
-- `test/fake-db.js` to miniaturowa atrapa Mongo używana wyłącznie w testach — nie trafia
-  na produkcję i nie jest importowana przez aplikację.

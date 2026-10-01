@@ -423,6 +423,13 @@ router.post('/delete-player', wrap(async (req, res) => {
 
 /* ================= TYPY ================= */
 
+/** Pełne typy sezonu (bez maskowania) - tylko dla admina. */
+router.get('/predictions', wrap(async (req, res) => {
+    const season = await seasonOf(req);
+    const preds = await Prediction.find({ season: season.year }).lean();
+    res.json(preds.map(p => ({ nickname: p.nickname, matchId: p.matchId, homePred: p.homePred, awayPred: p.awayPred, usedJoker: !!p.usedJoker, pointsEarned: p.pointsEarned ?? null, source: p.source })));
+}));
+
 router.post('/predict', wrap(async (req, res) => {
     const season = await seasonOf(req);
     const { nickname, matchId, homePred, awayPred, usedJoker } = req.body || {};

@@ -3,6 +3,7 @@
 let A = { season: null, seasons: [], matches: [], predictions: [], players: [], longTerms: [], cupMatches: [], ranking: [] };
 let adminToken = sessionStorage.getItem('adminToken') || '';
 let editSeason = Number(localStorage.getItem('adminSeason')) || null;
+const esc = T.escapeHtml;
 
 const SLOT_DAYS = ['poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota', 'niedziela'];
 
@@ -34,13 +35,19 @@ function showDashboard() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    document.querySelectorAll('.atab').forEach(btn => btn.addEventListener('click', () => switchTab(btn)));
+    T.registerSW();
+    document.querySelectorAll('.atab').forEach(btn => btn.addEventListener('click', () => {
+        history.replaceState(null, '', `#${btn.dataset.tab.replace('tab-', '')}`);
+        switchTab(btn.dataset.tab);
+    }));
     document.getElementById('season-picker').addEventListener('change', e => {
         editSeason = Number(e.target.value);
         localStorage.setItem('adminSeason', editSeason);
         refresh();
     });
     renderSlotInputs();
+    const fromHash = `tab-${location.hash.replace('#', '')}`;
+    switchTab(document.getElementById(fromHash) ? fromHash : 'tab-drafts');
 
     if (adminToken) {
         try {
@@ -52,15 +59,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('admin-pass-input').focus();
 });
 
-function switchTab(btn) {
-    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-    document.getElementById(btn.dataset.tab).classList.add('active');
+function switchTab(id) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.toggle('hidden', el.id !== id));
     document.querySelectorAll('.atab').forEach(b => {
-        b.classList.remove('bg-red-700');
-        b.classList.add('bg-gray-300', '!text-gray-700');
+        if (b.dataset.tab === id) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
-    btn.classList.add('bg-red-700');
-    btn.classList.remove('bg-gray-300', '!text-gray-700');
 }
 
 /* ---------------- warstwa API ---------------- */
@@ -95,78 +98,82 @@ function withSeason(body) { return { season: editSeason || undefined, ...body };
 /* ---------------- pobranie danych ---------------- */
 async function refresh() {
     const url = '/api/public/data' + (editSeason ? `?season=${editSeason}` : '');
-    const data = await T.getJson(url);
-    A = data;
-    if (!editSeason) editSeason = data.season.year;
+    A = await T.getJson(url);
+    if (!editSeason) editSeason = A.season.year;
 
-    // pełna lista graczy z tokenami (tylko dla admina)
-    try { A.fullPlayers = await api('/api/admin/players', null, true, 'GET'); } catch (e) { A.fullPlayers = []; }
-    try { A.seasonDetails = await api('/api/admin/seasons', null, true, 'GET'); } catch (e) { A.seasonDetails = []; }
+    const [players, seasons, drafts, jobs, preds] = await Promise.all([
+        api('/api/admin/players', null, true, 'GET').catch(() => []),
+        api('/api/admin/seasons', null, true, 'GET').catch(() => []),
+        api('/api/admin/drafts', null, true, 'GET').catch(() => []),
+        api('/api/admin/jobs', null, true, 'GET').catch(() => null),
+        api(`/api/admin/predictions?season=${editSeason}`, null, true, 'GET').catch(() => null)
+    ]);
+    if (preds) A.predictions = preds; // admin widzi typy także przed blokadą
+    A.fullPlayers = players;
+    A.seasonDetails = seasons;
+    A.drafts = drafts;
+    A.jobs = jobs;
 
     fillSeasonPicker();
     fillMatchSelects();
     fillPlayerSelects();
     fillTeamSelects();
     fillRoundSelects();
+    renderDrafts();
     renderBulkResults();
     renderPlayersList();
     renderPlayerTips();
     renderCupList();
     renderSeasonsList();
+    renderSeasonSettings();
+    renderJobs();
 }
 
 function fillSeasonPicker() {
     const sel = document.getElementById('season-picker');
     sel.innerHTML = A.seasons.map(s =>
-        `<option value="${s.year}" ${s.year === (editSeason || A.season.year) ? 'selected' : ''}>${T.escapeHtml(s.label)}${s.isActive ? ' • aktywny' : ''}</option>`).join('');
-    document.getElementById('gen-season').value = document.getElementById('gen-season').value || (editSeason || A.season.year);
+        `<option value="${s.year}" ${s.year === (editSeason || A.season.year) ? 'selected' : ''}>${esc(s.label)}${s.isActive ? ' • aktywny' : ''}</option>`).join('');
+    const gen = document.getElementById('gen-season');
+    gen.value = gen.value || (editSeason || A.season.year);
 }
 
 function matchLabel(m) {
-    const date = T.fmtDateTime(m.matchDate);
-    const score = m.homeScore !== null ? `✅ ${m.homeScore}:${m.awayScore} ` : '';
-    const flags = `${m.isMatchOfTheRound ? '⭐' : ''}${m.isPostponed ? '⛔' : ''}`;
-    return `[${T.roundName(m.round, A.season.stageNames)}] ${score}${T.shortName(m.homeTeam)} vs ${T.shortName(m.awayTeam)} (${date}) ${flags}`;
+    const score = T.hasResult(m) ? `✅ ${m.homeScore}:${m.awayScore} ` : '';
+    const flags = `${m.isMatchOfTheRound ? '⭐' : ''}${m.isPostponed ? '⛔' : ''}${m.predictionsFrozen ? '🔒' : ''}${m.voidPredictions ? '∅' : ''}`;
+    return `[R${m.round}] ${score}${T.shortName(m.homeTeam)} – ${T.shortName(m.awayTeam)} (${T.fmtDateTime(m.matchDate)}) ${flags}`;
+}
+
+function fillSelect(id, html) {
+    const el = document.getElementById(id);
+    const keep = el.value;
+    el.innerHTML = html;
+    if (keep && [...el.options].some(o => o.value === keep)) el.value = keep;
 }
 
 function fillMatchSelects() {
     const sorted = [...A.matches].sort((a, b) => {
-        const aDone = a.homeScore !== null, bDone = b.homeScore !== null;
+        const aDone = T.hasResult(a), bDone = T.hasResult(b);
         if (aDone !== bDone) return aDone ? 1 : -1;
         return new Date(a.matchDate) - new Date(b.matchDate);
     });
     const opts = '<option value="">— wybierz mecz —</option>' +
-        sorted.map(m => `<option value="${m._id}">${T.escapeHtml(matchLabel(m))}</option>`).join('');
-    ['result-select', 'edit-select'].forEach(id => {
-        const el = document.getElementById(id);
-        const keep = el.value;
-        el.innerHTML = opts;
-        if (keep) el.value = keep;
-    });
+        sorted.map(m => `<option value="${m._id}">${esc(matchLabel(m))}</option>`).join('');
+    ['result-select', 'edit-select'].forEach(id => fillSelect(id, opts));
 }
 
 function fillPlayerSelects() {
     const opts = '<option value="">— wybierz gracza —</option>' +
-        A.players.map(p => `<option value="${T.escapeHtml(p.nickname)}">${T.escapeHtml(p.nickname)}</option>`).join('');
-    ['tips-player', 'lt-player', 'cup-p1', 'cup-p2'].forEach(id => {
-        const el = document.getElementById(id);
-        const keep = el.value;
-        el.innerHTML = opts;
-        if (keep) el.value = keep;
-    });
+        A.players.map(p => `<option value="${esc(p.nickname)}">${esc(p.nickname)}</option>`).join('');
+    ['tips-player', 'lt-player', 'cup-p1', 'cup-p2'].forEach(id => fillSelect(id, opts));
+}
+
+function seasonTeams() {
+    return (A.season.teams && A.season.teams.length) ? A.season.teams : [...new Set(A.matches.flatMap(m => [m.homeTeam, m.awayTeam]))];
 }
 
 function fillTeamSelects() {
-    const teams = (A.season.teams && A.season.teams.length)
-        ? A.season.teams
-        : [...new Set(A.matches.flatMap(m => [m.homeTeam, m.awayTeam]))];
-    const opts = '<option value="">—</option>' + teams.map(t => `<option value="${T.escapeHtml(t)}">${T.escapeHtml(t)}</option>`).join('');
-    ['lt-gold', 'lt-bronze', 'lt-releg', 'fin-gold', 'fin-bronze', 'fin-releg', 'add-home', 'add-away'].forEach(id => {
-        const el = document.getElementById(id);
-        const keep = el.value;
-        el.innerHTML = opts;
-        if (keep) el.value = keep;
-    });
+    const opts = '<option value="">—</option>' + seasonTeams().map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    ['lt-gold', 'lt-bronze', 'lt-releg', 'fin-gold', 'fin-bronze', 'fin-releg', 'add-home', 'add-away'].forEach(id => fillSelect(id, opts));
     ['fin-gold', 'fin-bronze', 'fin-releg'].forEach(id => {
         const key = { 'fin-gold': 'champion', 'fin-bronze': 'bronze', 'fin-releg': 'relegation' }[id];
         if (A.season.results && A.season.results[key]) document.getElementById(id).value = A.season.results[key];
@@ -175,50 +182,113 @@ function fillTeamSelects() {
 
 function fillRoundSelects() {
     const rounds = [...new Set(A.matches.map(m => m.round))].sort((a, b) => a - b);
-    const opts = rounds.map(r => `<option value="${r}">${T.escapeHtml(T.roundName(r, A.season.stageNames))}</option>`).join('');
-    ['bulk-round', 'tips-round', 'cup-round', 'cupg-round'].forEach(id => {
-        const el = document.getElementById(id);
-        const keep = el.value;
-        el.innerHTML = (id === 'tips-round' ? '<option value="">wszystkie kolejki</option>' : '') + opts;
-        if (keep) el.value = keep;
-    });
-    if (!document.getElementById('bulk-round').value && rounds.length) {
-        const pending = A.matches.filter(m => m.homeScore === null).sort((a, b) => new Date(a.matchDate) - new Date(b.matchDate))[0];
-        document.getElementById('bulk-round').value = pending ? pending.round : rounds[rounds.length - 1];
+    const opts = rounds.map(r => `<option value="${r}">${esc(T.roundName(r, A.season.stageNames))}</option>`).join('');
+    ['bulk-round', 'tips-round', 'cup-round', 'cupg-round'].forEach(id => fillSelect(id, (id === 'tips-round' ? '<option value="">wszystkie kolejki</option>' : '') + opts));
+    const bulk = document.getElementById('bulk-round');
+    if (!bulk.dataset.touched && rounds.length) {
+        const pending = A.matches.filter(m => !T.hasResult(m) && new Date(m.matchDate) < new Date())
+            .sort((a, b) => new Date(a.matchDate) - new Date(b.matchDate))[0]
+            || A.matches.filter(m => !T.hasResult(m)).sort((a, b) => new Date(a.matchDate) - new Date(b.matchDate))[0];
+        bulk.value = pending ? pending.round : rounds[rounds.length - 1];
     }
+    bulk.onchange = () => { bulk.dataset.touched = '1'; renderBulkResults(); };
 }
 
-/* ---------------- 1. WYNIKI ---------------- */
+/* ---------------- DO ZATWIERDZENIA ---------------- */
+function renderDrafts() {
+    const list = A.drafts || [];
+    const badge = document.getElementById('drafts-badge');
+    badge.textContent = list.length;
+    badge.classList.toggle('hidden', !list.length);
+    const box = document.getElementById('drafts-list');
+    if (!list.length) {
+        const last = A.jobs && A.jobs.runs.find(r => r.job === 'scrape');
+        box.innerHTML = `<div class="card card-pad text-sm text-muted">Brak wyników do zatwierdzenia.${last ? ` Ostatnie pobranie: ${T.fmtDateTime(last.createdAt)} — ${esc(last.summary)}` : ''}</div>`;
+        return;
+    }
+    box.innerHTML = list.map(d => {
+        const m = d.match || {};
+        const total = d.homeScore + d.awayScore;
+        const blocked = (d.blockers || []).length > 0;
+        return `
+        <article class="card card-pad ${blocked ? 'border-bad/50' : (d.warnings || []).length ? 'border-warn/50' : 'border-ok/40'}">
+            <div class="flex items-center justify-between gap-2 mb-2">
+                <span class="eyebrow">R${m.round || '?'} · ${m.matchDate ? T.fmtDateTime(m.matchDate) : ''}${m.isMatchOfTheRound ? ' · ⭐ Kask' : ''}</span>
+                <a href="${esc(d.sourceUrl || '#')}" target="_blank" rel="noopener noreferrer" class="text-xs font-bold text-brand truncate max-w-[45%]">${esc(d.source || 'źródło')} ↗</a>
+            </div>
+            <div class="grid grid-cols-[1fr_auto_auto_auto_1fr] items-center gap-2">
+                <span class="text-right font-bold text-sm">${esc(T.shortName(m.homeTeam || '?'))}</span>
+                <input type="number" inputmode="numeric" class="score-input" id="dh-${d._id}" value="${d.homeScore}" aria-label="Gospodarze">
+                <span class="text-xl font-black text-faint">:</span>
+                <input type="number" inputmode="numeric" class="score-input" id="da-${d._id}" value="${d.awayScore}" aria-label="Goście">
+                <span class="font-bold text-sm">${esc(T.shortName(m.awayTeam || '?'))}</span>
+            </div>
+            <p class="text-center text-xs text-muted mt-1">suma ${total} / 90${T.hasResult(m) ? ` · obecnie w bazie ${m.homeScore}:${m.awayScore}` : ''}</p>
+            ${(d.blockers || []).map(b => `<p class="mt-2 text-sm font-bold text-bad">⛔ ${esc(b)}</p>`).join('')}
+            ${(d.warnings || []).map(w => `<p class="mt-1 text-sm text-warn">⚠️ ${esc(w)}</p>`).join('')}
+            ${d.snippet ? `<blockquote class="mt-2 rounded-xl bg-raised px-3 py-2 text-xs text-muted border-l-4 border-line">„${esc(d.snippet)}”</blockquote>` : ''}
+            <div class="flex gap-2 mt-3">
+                <button onclick="approveDraft('${d._id}', ${blocked})" class="btn-ok flex-1">✓ Zatwierdź</button>
+                <button onclick="rejectDraft('${d._id}')" class="btn-ghost">Odrzuć</button>
+            </div>
+        </article>`;
+    }).join('');
+}
+
+async function approveDraft(id, blocked) {
+    const homeScore = Number(document.getElementById(`dh-${id}`).value);
+    const awayScore = Number(document.getElementById(`da-${id}`).value);
+    const d = A.drafts.find(x => x._id === id);
+    const changed = d && (homeScore !== d.homeScore || awayScore !== d.awayScore);
+    const force = blocked && !changed && confirm('Ten wynik nie przeszedł kontroli sensowności. Na pewno zatwierdzić bez zmian?');
+    if (blocked && !changed && !force) return;
+    await api('/api/admin/drafts/approve', { id, homeScore, awayScore, force, notify: document.getElementById('drafts-notify').checked });
+}
+async function rejectDraft(id) { await api('/api/admin/drafts/reject', { id }); }
+async function approveAll() {
+    if (!confirm('Zatwierdzić wszystkie wyniki bez uwag krytycznych (⛔)? Punkty zostaną przeliczone.')) return;
+    await api('/api/admin/drafts/approve-all', { notify: document.getElementById('drafts-notify').checked });
+}
+async function runScrape() { T.toast('Pobieram wyniki…'); await api('/api/admin/jobs/scrape', withSeason({})); }
+
+/* ---------------- WYNIKI ---------------- */
 function renderBulkResults() {
     const round = Number(document.getElementById('bulk-round').value);
     const box = document.getElementById('bulk-results');
     const matches = A.matches.filter(m => m.round === round).sort((a, b) => new Date(a.matchDate) - new Date(b.matchDate));
-    if (!matches.length) { box.innerHTML = '<p class="text-sm italic text-gray-500">Brak meczów.</p>'; return; }
+    if (!matches.length) { box.innerHTML = '<p class="text-sm text-muted">Brak meczów.</p>'; return; }
     box.innerHTML = matches.map(m => `
-        <div class="flex items-center gap-2 bg-gray-50 p-2 rounded border" data-bulk="${m._id}">
-            <span class="text-[10px] text-gray-400 w-24 shrink-0">${T.fmtDay(m.matchDate)}</span>
-            <span class="flex-1 text-sm font-bold truncate">${T.escapeHtml(T.shortName(m.homeTeam))} – ${T.escapeHtml(T.shortName(m.awayTeam))}</span>
-            ${m.isMatchOfTheRound ? '<span class="gold-helmet">KASK</span>' : ''}
-            <input type="number" class="inp w-16 text-center font-bold bulk-home" value="${m.homeScore ?? ''}">
-            <input type="number" class="inp w-16 text-center font-bold bulk-away" value="${m.awayScore ?? ''}">
+        <div class="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded-xl bg-raised border border-line p-2" data-bulk="${m._id}">
+            <div class="min-w-0">
+                <div class="text-sm font-bold truncate">${esc(T.shortName(m.homeTeam))} – ${esc(T.shortName(m.awayTeam))}</div>
+                <div class="text-xs text-muted">${T.fmtDay(m.matchDate)} ${T.fmtTime(m.matchDate)}${m.isMatchOfTheRound ? ' · ⭐' : ''}${m.isWalkover ? ' · walkower' : ''}${m.resultSource === 'scraper' ? ' · ze scrapera' : ''}</div>
+            </div>
+            <input type="number" inputmode="numeric" class="input w-16 text-center font-black bulk-home" value="${m.homeScore ?? ''}" aria-label="Gospodarze">
+            <input type="number" inputmode="numeric" class="input w-16 text-center font-black bulk-away" value="${m.awayScore ?? ''}" aria-label="Goście">
         </div>`).join('');
 }
 
 async function saveBulkResults() {
     const results = [];
+    let suspicious = [];
     document.querySelectorAll('[data-bulk]').forEach(row => {
         const h = row.querySelector('.bulk-home').value;
         const a = row.querySelector('.bulk-away').value;
-        if (h !== '' && a !== '') results.push({ matchId: row.dataset.bulk, homeScore: Number(h), awayScore: Number(a) });
+        if (h !== '' && a !== '') {
+            results.push({ matchId: row.dataset.bulk, homeScore: Number(h), awayScore: Number(a) });
+            if (Number(h) + Number(a) > 90) suspicious.push(`${h}:${a}`);
+        }
     });
     if (!results.length) return T.toast('Nie wpisałeś żadnego wyniku.', 'err');
-    await api('/api/admin/results-bulk', { results });
+    if (suspicious.length && !confirm(`Suma powyżej 90 pkt (${suspicious.join(', ')}) — to niemożliwe w 15 biegach. Zapisać mimo to?`)) return;
+    await api('/api/admin/results-bulk', { results, notify: document.getElementById('bulk-notify').checked });
 }
 
 function loadResult() {
     const m = A.matches.find(x => x._id === document.getElementById('result-select').value);
-    document.getElementById('res-home').value = m && m.homeScore !== null ? m.homeScore : '';
-    document.getElementById('res-away').value = m && m.awayScore !== null ? m.awayScore : '';
+    document.getElementById('res-home').value = m && T.hasResult(m) ? m.homeScore : '';
+    document.getElementById('res-away').value = m && T.hasResult(m) ? m.awayScore : '';
+    document.getElementById('res-walkover').checked = !!(m && m.isWalkover);
 }
 
 async function saveResult() {
@@ -226,7 +296,11 @@ async function saveResult() {
     const homeScore = document.getElementById('res-home').value;
     const awayScore = document.getElementById('res-away').value;
     if (!matchId || homeScore === '' || awayScore === '') return T.toast('Wybierz mecz i wpisz oba wyniki.', 'err');
-    await api('/api/admin/result', { matchId, homeScore: Number(homeScore), awayScore: Number(awayScore) });
+    await api('/api/admin/result', {
+        matchId, homeScore: Number(homeScore), awayScore: Number(awayScore),
+        walkover: document.getElementById('res-walkover').checked,
+        notify: document.getElementById('res-notify').checked
+    });
 }
 
 async function clearResult() {
@@ -235,28 +309,51 @@ async function clearResult() {
     await api('/api/admin/result', { matchId, clear: true });
 }
 
-/* ---------------- 2. TERMINARZ ---------------- */
+/* ---------------- TERMINARZ ---------------- */
+function toLocalInput(date) {
+    const d = new Date(date);
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+}
+
 function loadMatchSettings() {
     const m = A.matches.find(x => x._id === document.getElementById('edit-select').value);
     if (!m) return;
-    const d = new Date(m.matchDate);
-    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-    document.getElementById('edit-date').value = d.toISOString().slice(0, 16);
+    document.getElementById('edit-date').value = toLocalInput(m.matchDate);
+    document.getElementById('edit-round').value = m.round;
     document.getElementById('edit-motr').checked = !!m.isMatchOfTheRound;
     document.getElementById('edit-postponed').checked = !!m.isPostponed;
+    document.getElementById('edit-frozen').checked = !!m.predictionsFrozen;
+    document.getElementById('edit-void').checked = !!m.voidPredictions;
     document.getElementById('edit-note').value = m.note || '';
+    const preds = A.predictions.filter(p => p.matchId === m._id).length;
+    document.getElementById('edit-info').textContent = [
+        `${preds} typów`,
+        m.originalDate ? `pierwotny termin: ${T.fmtDateTime(m.originalDate)}` : '',
+        `blokada: ${T.fmtDateTime(T.lockTime(m, A.season.lockMinutes))}`
+    ].filter(Boolean).join(' · ');
 }
 
 async function saveMatchEdit() {
     const matchId = document.getElementById('edit-select').value;
     if (!matchId) return T.toast('Wybierz mecz.', 'err');
-    await api('/api/admin/match-edit', {
+    const m = A.matches.find(x => x._id === matchId);
+    const body = {
         matchId,
-        matchDate: document.getElementById('edit-date').value || undefined,
+        matchDate: document.getElementById('edit-date').value ? new Date(document.getElementById('edit-date').value).toISOString() : undefined,
+        round: Number(document.getElementById('edit-round').value) || undefined,
         isMatchOfTheRound: document.getElementById('edit-motr').checked,
         isPostponed: document.getElementById('edit-postponed').checked,
+        voidPredictions: document.getElementById('edit-void').checked,
         note: document.getElementById('edit-note').value
-    });
+    };
+    // Zamrożenie wysyłamy tylko, gdy admin świadomie je zmienił - inaczej serwer sam decyduje przy przełożeniu
+    const frozen = document.getElementById('edit-frozen').checked;
+    if (m && frozen !== !!m.predictionsFrozen) {
+        if (!frozen && !confirm('Odmrozić typy? Gracze widzieli już cudze typy na ten mecz.')) return;
+        body.predictionsFrozen = frozen;
+    }
+    await api('/api/admin/match-edit', body);
 }
 
 async function deleteMatch() {
@@ -266,15 +363,16 @@ async function deleteMatch() {
 }
 
 async function addMatch() {
+    const date = document.getElementById('add-date').value;
     await api('/api/admin/match-add', withSeason({
         round: document.getElementById('add-round').value,
         homeTeam: document.getElementById('add-home').value,
         awayTeam: document.getElementById('add-away').value,
-        matchDate: document.getElementById('add-date').value
+        matchDate: date ? new Date(date).toISOString() : ''
     }));
 }
 
-/* ---------------- 3. GRACZE ---------------- */
+/* ---------------- GRACZE ---------------- */
 async function addPlayer() {
     const fullName = document.getElementById('new-fullname').value.trim();
     const nickname = document.getElementById('new-nickname').value.trim();
@@ -284,37 +382,39 @@ async function addPlayer() {
     document.getElementById('new-nickname').value = '';
 }
 
+function playerLink(token) { return `${location.origin}/typuj.html?id=${token}`; }
+
 function renderPlayersList() {
     const box = document.getElementById('players-list');
     const list = A.fullPlayers || [];
-    if (!list.length) { box.innerHTML = '<p class="text-sm italic text-gray-500">Brak graczy.</p>'; return; }
+    if (!list.length) { box.innerHTML = '<p class="text-sm text-muted">Brak graczy.</p>'; return; }
     box.innerHTML = list.map(p => {
-        const link = `${location.origin}/typuj.html?id=${p.token}`;
         const inSeason = p.seasons.includes(editSeason);
+        const nick = esc(p.nickname).replace(/'/g, '&#39;');
         return `
-        <div class="bg-blue-50 border border-blue-100 p-2 rounded text-xs">
-            <div class="flex items-center justify-between gap-2 mb-1">
+        <div class="rounded-xl border border-line bg-raised p-3 ${p.isActive ? '' : 'opacity-70'}">
+            <div class="flex items-start justify-between gap-2">
                 <div class="min-w-0">
-                    <strong class="text-gray-900">${T.escapeHtml(p.nickname)}</strong>
-                    <span class="text-gray-400">${T.escapeHtml(p.fullName || '')}</span>
-                    ${p.isActive ? '' : '<span class="ml-1 text-red-600 font-bold">(wstrzymany)</span>'}
-                    <div class="text-[10px] text-gray-400">sezony: ${p.seasons.join(', ') || '—'}</div>
+                    <strong>${esc(p.nickname)}</strong> <span class="text-muted text-sm">${esc(p.fullName || '')}</span>
+                    ${p.isActive ? '' : '<span class="chip-bad ml-1">wstrzymany</span>'}
+                    <div class="text-xs text-muted">sezony: ${p.seasons.join(', ') || '—'} · ostatnio: ${p.lastSeenAt ? T.fmtDateTime(p.lastSeenAt) : 'nigdy'}</div>
                 </div>
-                <div class="flex flex-wrap gap-1 shrink-0">
-                    <button onclick="copyLink('${p.token}','${T.escapeHtml(p.nickname)}')" class="btn bg-blue-600 hover:bg-blue-800 !py-1 !px-2">Kopiuj link</button>
-                    <a href="https://wa.me/?text=${encodeURIComponent('Twój panel typera: ' + link)}" target="_blank" rel="noopener" class="btn bg-green-600 hover:bg-green-700 !py-1 !px-2">WhatsApp</a>
-                    <button onclick="toggleSeason('${T.escapeHtml(p.nickname)}',${!inSeason})" class="btn ${inSeason ? 'bg-gray-500' : 'bg-indigo-600'} !py-1 !px-2">${inSeason ? 'Wypisz z sezonu' : 'Dopisz do sezonu'}</button>
-                    <button onclick="newToken('${T.escapeHtml(p.nickname)}')" class="btn bg-yellow-600 hover:bg-yellow-700 !py-1 !px-2">Nowy link</button>
-                    <button onclick="togglePlayer('${T.escapeHtml(p.nickname)}')" class="btn bg-gray-600 !py-1 !px-2">${p.isActive ? 'Wstrzymaj' : 'Przywróć'}</button>
-                    <button onclick="deletePlayer('${T.escapeHtml(p.nickname)}')" class="btn bg-red-600 hover:bg-red-800 !py-1 !px-2">Usuń</button>
-                </div>
+            </div>
+            <div class="flex flex-wrap gap-1.5 mt-2">
+                <button onclick="copyLink('${p.token}','${nick}')" class="btn-primary btn-sm">Kopiuj link</button>
+                <a href="https://wa.me/?text=${encodeURIComponent('Twój panel typera (nie udostępniaj): ' + playerLink(p.token))}" target="_blank" rel="noopener" class="btn-ghost btn-sm">WhatsApp</a>
+                <button onclick="toggleSeason('${nick}',${!inSeason})" class="btn-ghost btn-sm">${inSeason ? 'Wypisz z sezonu' : 'Dopisz do sezonu'}</button>
+                <button onclick="newToken('${nick}')" class="btn-ghost btn-sm">Nowy link</button>
+                <button onclick="togglePlayer('${nick}')" class="btn-ghost btn-sm">${p.isActive ? 'Wstrzymaj' : 'Przywróć'}</button>
+                <button onclick="pushTestPlayer('${nick}')" class="btn-ghost btn-sm">Test push</button>
+                <button onclick="deletePlayer('${nick}')" class="btn-danger btn-sm">Usuń</button>
             </div>
         </div>`;
     }).join('');
 }
 
 function copyLink(token, nick) {
-    const link = `${location.origin}/typuj.html?id=${token}`;
+    const link = playerLink(token);
     navigator.clipboard.writeText(link)
         .then(() => T.toast(`Skopiowano link dla ${nick}`))
         .catch(() => prompt('Skopiuj link ręcznie:', link));
@@ -326,6 +426,7 @@ async function newToken(nickname) {
 }
 async function togglePlayer(nickname) { await api('/api/admin/player/toggle', { nickname }); }
 async function toggleSeason(nickname, join) { await api('/api/admin/player/season', { nickname, year: editSeason, join }); }
+async function pushTestPlayer(nickname) { await api('/api/admin/push/test', { nickname }, false); }
 
 async function deletePlayer(nickname) {
     const onlySeason = confirm(`OK = usuń ${nickname} tylko z sezonu ${editSeason}.\nAnuluj = przejdź do usunięcia z całej historii.`);
@@ -335,40 +436,35 @@ async function deletePlayer(nickname) {
     }
 }
 
-/* ---------------- 4. TYPY ---------------- */
+/* ---------------- TYPY ---------------- */
 function renderPlayerTips() {
     const nickname = document.getElementById('tips-player').value;
     const round = document.getElementById('tips-round').value;
     const box = document.getElementById('tips-container');
-    if (!nickname) { box.innerHTML = '<p class="text-sm italic text-gray-500 text-center py-4">Wybierz gracza.</p>'; return; }
+    if (!nickname) { box.innerHTML = '<p class="text-sm text-muted text-center py-4">Wybierz gracza.</p>'; return; }
 
     const matches = A.matches
         .filter(m => !round || m.round === Number(round))
         .sort((a, b) => a.round - b.round || new Date(a.matchDate) - new Date(b.matchDate));
+    const nick = esc(nickname).replace(/'/g, '&#39;');
 
     box.innerHTML = matches.map(m => {
         const p = A.predictions.find(x => x.nickname === nickname && x.matchId === m._id) || {};
         const val = v => (v === null || v === undefined ? '' : v);
         return `
-        <div class="flex flex-col md:flex-row md:items-center gap-2 bg-gray-50 p-2 rounded border">
-            <div class="md:w-1/3 text-xs font-bold text-gray-700">
-                <span class="text-purple-700 bg-purple-100 px-1 rounded">${T.escapeHtml(T.roundName(m.round, A.season.stageNames))}</span>
-                <span class="text-gray-400">${T.fmtDay(m.matchDate)}</span>
-                ${m.homeScore !== null ? `<span class="text-blue-700">(${m.homeScore}:${m.awayScore})</span>` : ''}
-                <div>${T.escapeHtml(T.shortName(m.homeTeam))} – ${T.escapeHtml(T.shortName(m.awayTeam))}</div>
-            </div>
-            <div class="md:w-1/3 flex items-center justify-center gap-2">
-                <input type="number" id="tip-h-${m._id}" value="${val(p.homePred)}" class="inp w-16 text-center font-bold">
-                <span class="font-extrabold text-gray-400">:</span>
-                <input type="number" id="tip-a-${m._id}" value="${val(p.awayPred)}" class="inp w-16 text-center font-bold">
-                <label class="text-[10px] font-bold text-yellow-700 flex items-center gap-1 bg-yellow-50 px-1 py-1 rounded border border-yellow-200">
-                    <input type="checkbox" id="tip-j-${m._id}" ${p.usedJoker ? 'checked' : ''} class="w-4 h-4"> JOKER
-                </label>
-            </div>
-            <div class="md:w-1/3 flex gap-1 justify-end items-center">
-                ${p.pointsEarned !== null && p.pointsEarned !== undefined ? `<span class="text-[10px] font-bold ${p.pointsEarned > 0 ? 'text-green-700' : 'text-red-600'}">+${p.pointsEarned} pkt</span>` : ''}
-                <button onclick="saveTip('${m._id}','${T.escapeHtml(nickname)}')" class="btn bg-purple-600 hover:bg-purple-800 !py-1.5">Zapisz</button>
-                ${p.homePred !== undefined ? `<button onclick="deleteTip('${m._id}','${T.escapeHtml(nickname)}')" class="btn bg-gray-400 hover:bg-gray-600 !py-1.5">✕</button>` : ''}
+        <div class="rounded-xl border border-line bg-raised p-2.5">
+            <div class="text-sm font-bold">${esc(T.shortName(m.homeTeam))} – ${esc(T.shortName(m.awayTeam))}
+                <span class="text-xs text-muted font-semibold">R${m.round} · ${T.fmtDay(m.matchDate)}${T.hasResult(m) ? ` · ${m.homeScore}:${m.awayScore}` : ''}</span>
+                ${p.hidden ? '<span class="chip-muted">ukryty</span>' : ''}</div>
+            <div class="flex flex-wrap items-center gap-2 mt-2">
+                <input type="number" inputmode="numeric" id="tip-h-${m._id}" value="${val(p.homePred)}" class="input w-16 text-center font-bold" aria-label="Gospodarze">
+                <span class="font-black text-faint">:</span>
+                <input type="number" inputmode="numeric" id="tip-a-${m._id}" value="${val(p.awayPred)}" class="input w-16 text-center font-bold" aria-label="Goście">
+                <label class="flex items-center gap-1 text-xs font-bold text-gold"><input type="checkbox" id="tip-j-${m._id}" ${p.usedJoker ? 'checked' : ''} class="w-5 h-5"> Joker</label>
+                ${p.pointsEarned !== null && p.pointsEarned !== undefined ? `<span class="chip-ok">+${p.pointsEarned}</span>` : ''}
+                <span class="flex-1"></span>
+                <button onclick="saveTip('${m._id}','${nick}')" class="btn-primary btn-sm">Zapisz</button>
+                ${p.homePred !== undefined || p.hidden ? `<button onclick="deleteTip('${m._id}','${nick}')" class="btn-ghost btn-sm" aria-label="Usuń typ">✕</button>` : ''}
             </div>
         </div>`;
     }).join('');
@@ -379,8 +475,7 @@ async function saveTip(matchId, nickname) {
     const a = document.getElementById(`tip-a-${matchId}`).value;
     if (h === '' || a === '') return T.toast('Podaj pełny typ.', 'err');
     await api('/api/admin/predict', withSeason({
-        nickname, matchId,
-        homePred: Number(h), awayPred: Number(a),
+        nickname, matchId, homePred: Number(h), awayPred: Number(a),
         usedJoker: document.getElementById(`tip-j-${matchId}`).checked
     }));
 }
@@ -409,7 +504,7 @@ async function saveLongTerm() {
     }));
 }
 
-/* ---------------- 5. PUCHAR ---------------- */
+/* ---------------- PUCHAR ---------------- */
 async function generateCup() {
     await api('/api/admin/cup-generate', withSeason({
         stage: document.getElementById('cupg-stage').value,
@@ -434,36 +529,87 @@ async function autoscoreCup() { await api('/api/admin/cup-autoscore', withSeason
 
 function renderCupList() {
     const box = document.getElementById('cup-list');
-    if (!A.cupMatches.length) { box.innerHTML = '<p class="text-sm italic text-gray-500">Drabinka pusta.</p>'; return; }
+    if (!A.cupMatches.length) { box.innerHTML = '<p class="text-sm text-muted">Drabinka pusta.</p>'; return; }
     box.innerHTML = A.cupMatches.map(c => `
-        <div class="flex items-center justify-between bg-orange-50 border border-orange-100 p-2 rounded text-sm">
-            <span><strong>${T.escapeHtml(c.stage)}</strong> ${c.roundNumber ? `· R${c.roundNumber}` : ''}</span>
-            <span class="font-mono font-bold">${T.escapeHtml(c.player1)} ${c.score1 ?? '–'} : ${c.score2 ?? '–'} ${T.escapeHtml(c.player2)}</span>
-            <button onclick="deleteCup('${c._id}')" class="btn bg-red-500 hover:bg-red-700 !py-1 !px-2">✕</button>
+        <div class="flex items-center justify-between gap-2 rounded-xl border border-line bg-raised p-2.5 text-sm">
+            <span class="min-w-0"><strong>${esc(c.stage)}</strong> ${c.roundNumber ? `· R${c.roundNumber}` : ''}<br>
+                <span class="tabular-nums">${esc(c.player1)} ${c.score1 ?? '–'} : ${c.score2 ?? '–'} ${esc(c.player2)}</span></span>
+            <button onclick="deleteCup('${c._id}')" class="btn-danger btn-sm" aria-label="Usuń parę">✕</button>
         </div>`).join('');
 }
 
 async function deleteCup(id) { if (confirm('Usunąć parę?')) await api('/api/admin/cup-delete', { id }); }
 
-/* ---------------- 6. SEZONY ---------------- */
+/* ---------------- SEZONY ---------------- */
 function renderSeasonsList() {
     const box = document.getElementById('seasons-list');
     const list = A.seasonDetails || [];
-    if (!list.length) { box.innerHTML = '<p class="text-sm italic text-gray-500">Brak sezonów.</p>'; return; }
+    if (!list.length) { box.innerHTML = '<p class="text-sm text-muted">Brak sezonów.</p>'; return; }
     box.innerHTML = list.map(s => `
-        <div class="flex flex-wrap items-center justify-between gap-2 bg-indigo-50 border border-indigo-100 p-3 rounded">
-            <div>
-                <strong class="text-indigo-900">${T.escapeHtml(s.label || 'Sezon ' + s.year)}</strong>
-                ${s.isActive ? '<span class="ml-1 text-[10px] bg-green-600 text-white px-2 py-0.5 rounded font-bold">AKTYWNY</span>' : ''}
-                ${s.isFinished ? '<span class="ml-1 text-[10px] bg-gray-600 text-white px-2 py-0.5 rounded font-bold">ARCHIWUM</span>' : ''}
-                <div class="text-[11px] text-gray-500">${s.matches} meczów · ${s.predictions} typów · blokada ${s.lockHours} h · ${s.teams.length} drużyn</div>
+        <div class="rounded-xl border border-line bg-raised p-3 ${s.year === editSeason ? 'ring-2 ring-brand/40' : ''}">
+            <div class="flex flex-wrap items-center gap-2">
+                <strong>${esc(s.label || 'Sezon ' + s.year)}</strong>
+                ${s.isActive ? '<span class="chip-ok">aktywny</span>' : ''}
+                ${s.isFinished ? '<span class="chip-muted">archiwum</span>' : ''}
+                ${s.year === editSeason ? '<span class="chip-brand">edytowany</span>' : ''}
             </div>
-            <div class="flex gap-1">
-                ${s.isActive ? '' : `<button onclick="activateSeason(${s.year})" class="btn bg-green-700 hover:bg-green-900 !py-1 !px-2">Ustaw aktywny</button>`}
-                ${s.isFinished ? `<button onclick="reopenSeason(${s.year})" class="btn bg-yellow-600 !py-1 !px-2">Otwórz ponownie</button>` : ''}
-                <button onclick="editThisSeason(${s.year})" class="btn bg-indigo-600 hover:bg-indigo-800 !py-1 !px-2">Edytuj ten sezon</button>
+            <div class="text-xs text-muted">${s.matches} meczów · ${s.predictions} typów · blokada ${T.lockLabel(s.lockMinutes)} przed startem · ${s.teams.length} drużyn</div>
+            <div class="flex flex-wrap gap-1.5 mt-2">
+                ${s.isActive ? '' : `<button onclick="activateSeason(${s.year})" class="btn-ok btn-sm">Ustaw aktywny</button>`}
+                ${s.isFinished ? `<button onclick="reopenSeason(${s.year})" class="btn-ghost btn-sm">Otwórz ponownie</button>` : ''}
+                ${s.year === editSeason ? '' : `<button onclick="editThisSeason(${s.year})" class="btn-ghost btn-sm">Edytuj ten sezon</button>`}
             </div>
         </div>`).join('');
+}
+
+function currentSeasonDetails() { return (A.seasonDetails || []).find(s => s.year === editSeason) || null; }
+
+function renderSeasonSettings() {
+    const s = currentSeasonDetails();
+    if (!s) return;
+    const set = (id, v) => { const el = document.getElementById(id); if (document.activeElement !== el) el.value = v; };
+    set('set-lock', s.lockMinutes);
+    set('set-exact', s.scoring.exact); set('set-diff', s.scoring.diff); set('set-winner', s.scoring.winner);
+    set('set-motr', s.scoring.motrBonus); set('set-joker', s.scoring.jokerMultiplier); set('set-lt', s.scoring.longTermEach);
+    set('set-adjust', (s.standingsAdjustments || []).map(a => `${a.team} ; ${a.points} ; ${a.reason || ''}`).join('\n'));
+    set('set-aliases', Object.entries(s.teamAliases || {}).map(([t, list]) => `${t} = ${list.join(', ')}`).join('\n'));
+    set('set-urls', (s.scraperUrls || []).join('\n'));
+    const env = A.jobs && A.jobs.scraper ? A.jobs.scraper.envUrls : [];
+    document.getElementById('set-urls-env').textContent = env.length
+        ? `Puste = źródła z SCRAPER_URLS: ${env.join(', ')}` : 'Brak źródeł w SCRAPER_URLS — wpisz adresy tutaj albo w zmiennych środowiskowych.';
+}
+
+async function saveSeasonSettings() {
+    const s = currentSeasonDetails();
+    const scoring = {
+        exact: document.getElementById('set-exact').value, diff: document.getElementById('set-diff').value,
+        winner: document.getElementById('set-winner').value, motrBonus: document.getElementById('set-motr').value,
+        jokerMultiplier: document.getElementById('set-joker').value, longTermEach: document.getElementById('set-lt').value
+    };
+    const scoringChanged = s && Object.entries(scoring).some(([k, v]) => Number(v) !== Number(s.scoring[k]));
+    if (scoringChanged && !confirm('Zmieniasz punktację — cały sezon zostanie przeliczony. Kontynuować?')) return;
+
+    const teams = seasonTeams();
+    const adjustments = document.getElementById('set-adjust').value.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+        const [team, points, ...reason] = l.split(';').map(x => x.trim());
+        return { team, points: Number(points), reason: reason.join(';') };
+    });
+    const unknown = adjustments.filter(a => !teams.includes(a.team)).map(a => a.team);
+    if (unknown.length && !confirm(`Nieznane drużyny w korektach: ${unknown.join(', ')}. Zapisać mimo to?`)) return;
+
+    const aliases = {};
+    document.getElementById('set-aliases').value.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => {
+        const [team, rest] = l.split('=').map(x => (x || '').trim());
+        if (team && rest) aliases[team] = rest.split(',').map(x => x.trim()).filter(Boolean);
+    });
+
+    await api('/api/admin/season/settings', withSeason({
+        lockMinutes: document.getElementById('set-lock').value,
+        scoring: scoringChanged ? scoring : undefined,
+        standingsAdjustments: adjustments,
+        teamAliases: aliases,
+        scraperUrls: document.getElementById('set-urls').value.split('\n').map(x => x.trim()).filter(Boolean)
+    }));
 }
 
 function editThisSeason(year) {
@@ -480,12 +626,7 @@ async function activateSeason(year) {
 
 async function reopenSeason(year) { await api('/api/admin/season/reopen', { season: year }); }
 
-function copyTeamsFromCurrent() {
-    const teams = (A.season.teams && A.season.teams.length)
-        ? A.season.teams
-        : [...new Set(A.matches.flatMap(m => [m.homeTeam, m.awayTeam]))];
-    document.getElementById('ns-teams').value = teams.join('\n');
-}
+function copyTeamsFromCurrent() { document.getElementById('ns-teams').value = seasonTeams().join('\n'); }
 
 async function saveNewSeason(activate) {
     const year = Number(document.getElementById('ns-year').value);
@@ -495,7 +636,7 @@ async function saveNewSeason(activate) {
     const out = await api('/api/admin/season', {
         year,
         label: document.getElementById('ns-label').value,
-        lockHours: document.getElementById('ns-lock').value,
+        lockMinutes: document.getElementById('ns-lock').value,
         teams,
         copyPlayers: document.getElementById('ns-copy').checked,
         activate
@@ -510,11 +651,11 @@ function renderSlotInputs() {
     const box = document.getElementById('gen-slots');
     const defaults = [[4, '18:00'], [4, '20:30'], [6, '16:00'], [6, '19:15']];
     box.innerHTML = defaults.map(([day, time], i) => `
-        <div class="flex gap-1">
-            <select id="slot-day-${i}" class="inp">
+        <div class="flex gap-2">
+            <select id="slot-day-${i}" class="input" aria-label="Dzień meczu ${i + 1}">
                 ${SLOT_DAYS.map((d, di) => `<option value="${di}" ${di === day ? 'selected' : ''}>${d}</option>`).join('')}
             </select>
-            <input type="time" id="slot-time-${i}" value="${time}" class="inp">
+            <input type="time" id="slot-time-${i}" value="${time}" class="input w-32" aria-label="Godzina meczu ${i + 1}">
         </div>`).join('');
 }
 
@@ -530,10 +671,9 @@ function readSlots() {
 
 function genPayload() {
     const teams = document.getElementById('ns-teams').value.split('\n').map(t => t.trim()).filter(Boolean);
-    const fallback = (A.season.teams || []);
     return {
         season: Number(document.getElementById('gen-season').value) || editSeason,
-        teams: teams.length ? teams : fallback,
+        teams: teams.length ? teams : (A.season.teams || []),
         startDate: document.getElementById('gen-start').value,
         slots: readSlots(),
         skipWeeks: document.getElementById('gen-skip').value.split(',').map(n => Number(n.trim())).filter(Boolean)
@@ -557,14 +697,13 @@ async function saveSchedule(replace) {
 }
 
 async function importSchedule() {
-    const raw = document.getElementById('schedule-json').value;
     let schedule;
-    try { schedule = JSON.parse(raw); } catch (e) { return T.toast('Niepoprawny JSON.', 'err'); }
+    try { schedule = JSON.parse(document.getElementById('schedule-json').value); } catch (e) { return T.toast('Niepoprawny JSON.', 'err'); }
     await api('/api/admin/load-schedule', withSeason({ schedule }));
 }
 
 async function finishSeason() {
-    if (!confirm('Rozliczyć typy długoterminowe według wskazanych wyników?')) return;
+    if (!confirm('Rozliczyć typy sezonowe według wskazanych wyników?')) return;
     await api('/api/admin/season/finish', withSeason({
         champion: document.getElementById('fin-gold').value,
         bronze: document.getElementById('fin-bronze').value,
@@ -573,7 +712,34 @@ async function finishSeason() {
     }));
 }
 
-/* ---------------- 7. SYSTEM ---------------- */
+/* ---------------- SYSTEM ---------------- */
+function renderJobs() {
+    const j = A.jobs;
+    const status = document.getElementById('push-status');
+    if (!j) { status.textContent = ''; return; }
+    status.textContent = j.push.enabled
+        ? `Push włączony · ${j.push.subscriptions} urządzeń (w tym ${j.push.admins} admina).`
+        : 'Push wyłączony — ustaw VAPID_PUBLIC_KEY i VAPID_PRIVATE_KEY (npm run vapid).';
+    const list = document.getElementById('jobs-list');
+    list.innerHTML = j.runs.length ? j.runs.map(r => `
+        <li class="py-2">
+            <div class="flex items-center gap-2"><span class="${r.ok ? 'chip-ok' : 'chip-bad'}">${esc(r.job)}</span>
+                <span class="text-xs text-muted">${T.fmtDateTime(r.createdAt)}</span></div>
+            <div class="text-sm mt-0.5">${esc(r.summary || '')}</div>
+            ${r.details && r.details.sourceErrors && r.details.sourceErrors.length ? `<div class="text-xs text-bad mt-0.5">${r.details.sourceErrors.map(esc).join('<br>')}</div>` : ''}
+        </li>`).join('') : '<li class="py-2 text-muted">Jeszcze nic nie uruchomiono.</li>';
+}
+
+async function adminPushSubscribe() {
+    try {
+        const out = await T.enablePush('/api/admin/push/subscribe', {}, { 'x-admin-token': adminToken });
+        T.toast(out.message);
+        refresh();
+    } catch (e) { T.toast(e.message, 'err'); }
+}
+async function adminPushTest() { await api('/api/admin/push/test', {}); }
+async function runReminders() { await api('/api/admin/jobs/reminders', {}); }
+
 async function recalc() { if (confirm('Przeliczyć punkty całego sezonu?')) await api('/api/admin/recalculate', withSeason({})); }
 async function fixDuplicates() { await api('/api/admin/fix-duplicates', {}); }
 async function cleanRounds() {
