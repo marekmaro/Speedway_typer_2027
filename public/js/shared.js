@@ -43,6 +43,17 @@ window.T = (function () {
     }
 
     const pad = n => String(n).padStart(2, '0');
+
+    /* Zegar serwera: telefon może mieć źle ustawioną godzinę, a blokada liczy się co do minuty.
+       Każda odpowiedź API niesie serverTime - liczymy różnicę i odliczamy według serwera. */
+    let clockOffset = 0;
+    function syncClock(serverTimeIso, requestStartedAt) {
+        const server = new Date(serverTimeIso).getTime();
+        if (!server) return;
+        const local = requestStartedAt ? (requestStartedAt + Date.now()) / 2 : Date.now();
+        clockOffset = server - local;
+    }
+    function now() { return Date.now() + clockOffset; }
     const TZ = { timeZone: 'Europe/Warsaw' };
 
     function fmtDateTime(d) {
@@ -59,8 +70,8 @@ window.T = (function () {
     }
 
     /** "2d 04h 12m" / "04:12:08" albo null, gdy czas minął. */
-    function countdown(targetMs, now = Date.now()) {
-        const diff = targetMs - now;
+    function countdown(targetMs, at = now()) {
+        const diff = targetMs - at;
         if (diff <= 0) return null;
         const d = Math.floor(diff / 86400000);
         const h = Math.floor((diff % 86400000) / 3600000);
@@ -73,10 +84,11 @@ window.T = (function () {
     function lockTime(match, lockMinutes) {
         return new Date(match.matchDate).getTime() - lockMinutes * 60 * 1000;
     }
-    function isLocked(match, lockMinutes, now = Date.now()) {
+    function isLocked(match, lockMinutes, at = now()) {
         if (match.predictionsFrozen) return true;
         if (match.homeScore !== null && match.homeScore !== undefined) return true;
-        return now >= lockTime(match, lockMinutes);
+        if (match.isPostponed) return false; // termin nieznany: stara data nic nie znaczy
+        return at >= lockTime(match, lockMinutes);
     }
     function hasResult(m) { return m.homeScore !== null && m.homeScore !== undefined; }
 
@@ -88,18 +100,19 @@ window.T = (function () {
     }
 
     /** Status meczu jako plakietka - wspólny dla strony głównej, panelu gracza i admina. */
-    function matchStatus(m, lockMinutes, now = Date.now()) {
+    function matchStatus(m, lockMinutes, at = now()) {
         if (m.isWalkover) return { cls: 'chip-warn', text: 'Walkower · typy anulowane' };
         if (m.voidPredictions) return { cls: 'chip-warn', text: 'Typy anulowane' };
         if (hasResult(m)) return { cls: 'chip-muted', text: 'Zakończony' };
-        if (m.isPostponed) return { cls: 'chip-bad', text: 'Przełożony · czeka na termin' };
+        if (m.isPostponed && m.predictionsFrozen) return { cls: 'chip-bad', text: '🔒 Przełożony · typy zamrożone' };
+        if (m.isPostponed) return { cls: 'chip-warn', text: 'Przełożony · czeka na termin' };
         if (m.predictionsFrozen) return { cls: 'chip-bad', text: '🔒 Przełożony · typy zamrożone' };
-        if (isLocked(m, lockMinutes, now)) {
-            return new Date(m.matchDate).getTime() <= now
+        if (isLocked(m, lockMinutes, at)) {
+            return new Date(m.matchDate).getTime() <= at
                 ? { cls: 'chip-brand', text: 'Trwa / czeka na wynik' }
                 : { cls: 'chip-bad', text: '🔒 Typy zamknięte' };
         }
-        return { cls: 'chip-ok', text: `Otwarte · ${countdown(lockTime(m, lockMinutes), now) || ''}` };
+        return { cls: 'chip-ok', text: `Otwarte · ${countdown(lockTime(m, lockMinutes), at) || ''}` };
     }
 
     function roundName(round, stageNames) {
@@ -205,7 +218,7 @@ window.T = (function () {
     }
 
     return {
-        LOGOS, shortName, initials, logoHtml, fmtDate, fmtDateTime, fmtDay, fmtTime, countdown, lockTime, isLocked,
+        LOGOS, shortName, initials, logoHtml, fmtDate, fmtDateTime, fmtDay, fmtTime, countdown, lockTime, isLocked, syncClock, now,
         hasResult, lockLabel, matchStatus, roundName, escapeHtml, getJson, postJson, toast, pad,
         registerSW, rememberToken, storedToken, isStandalone, isIOS, pushSupported, currentPush, enablePush, disablePush
     };

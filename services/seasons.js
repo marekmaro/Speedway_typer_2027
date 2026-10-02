@@ -1,5 +1,5 @@
 const { Season, Match, Prediction, LongTerm, CupMatch, Player } = require('../models/Database');
-const { LEGACY_SEASON, DEFAULT_STAGE_NAMES } = require('../config');
+const { LEGACY_SEASON, DEFAULT_STAGE_NAMES, DEFAULT_LOCK_MINUTES } = require('../config');
 const { settle, scoringOf, uniqueTeams, stageNamesOf, indexMatches } = require('./scoring');
 
 /** Aktywny sezon; jeśli baza jest pusta, tworzy go automatycznie. */
@@ -10,11 +10,16 @@ async function getActiveSeason() {
         if (season) { season.isActive = true; await season.save(); }
     }
     if (!season) {
+        // Dane z wersji 1 (mecze bez sezonu) -> sezon LEGACY z dawną blokadą 24 h.
+        // Świeża instalacja -> bieżący rok i blokada v3 (1 min przed startem).
+        const legacy = (await Match.countDocuments({})) > 0;
+        const year = legacy ? LEGACY_SEASON : Number(new Date().toLocaleString('en-US', { timeZone: 'Europe/Warsaw', year: 'numeric' }));
         season = await Season.create({
-            year: LEGACY_SEASON,
-            label: `Ekstraliga ${LEGACY_SEASON}`,
+            year,
+            label: `Ekstraliga ${year}`,
             isActive: true,
-            stageNames: DEFAULT_STAGE_NAMES
+            stageNames: DEFAULT_STAGE_NAMES,
+            ...(legacy ? {} : { lockMinutes: DEFAULT_LOCK_MINUTES })
         });
     }
     return season;

@@ -53,7 +53,9 @@ function showTab() {
 
 async function load() {
     try {
+        const started = Date.now();
         D = await T.getJson('/api/public/data' + (seasonParam ? `?season=${seasonParam}` : ''));
+        T.syncClock(D.serverTime, started);
         document.getElementById('load-error').classList.add('hidden');
         renderSeasonPicker();
         renderLeagueTable();
@@ -88,7 +90,7 @@ function renderSeasonPicker() {
 }
 
 function nextOpenMatch() {
-    const now = Date.now();
+    const now = T.now();
     return D.matches
         .filter(m => !m.isPostponed && !m.voidPredictions && !T.isLocked(m, D.season.lockMinutes, now))
         .sort((a, b) => new Date(a.matchDate) - new Date(b.matchDate))[0] || null;
@@ -185,7 +187,7 @@ function renderMatches() {
     const container = document.getElementById('matches-container');
     if (!D.matches.length) { container.innerHTML = ''; return; }
     const current = selectedRound || activeRound();
-    const now = Date.now();
+    const now = T.now();
     const matches = D.matches.filter(m => m.round === current)
         .sort((a, b) => new Date(a.matchDate) - new Date(b.matchDate));
 

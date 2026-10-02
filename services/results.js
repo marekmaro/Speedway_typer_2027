@@ -47,6 +47,8 @@ async function notifyResult(match) {
 }
 
 async function clearResult(match) {
+    // Bez wyniku nie ma walkowera - przy okazji przywracamy rozliczanie typów
+    if (match.isWalkover) { match.isWalkover = false; match.voidPredictions = false; }
     match.homeScore = null;
     match.awayScore = null;
     match.resultSource = null;

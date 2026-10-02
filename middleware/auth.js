@@ -30,8 +30,13 @@ function cleanup() {
 }
 setInterval(cleanup, 10 * 60 * 1000).unref();
 
+/**
+ * Adres klienta do limitów. NIE czytamy X-Forwarded-For ręcznie: pierwszy wpis w tym nagłówku
+ * ustawia sam klient, więc zmieniając go, można by obejść limit prób logowania.
+ * req.ip uwzględnia "trust proxy" z server.js (Render dopisuje prawdziwy adres na końcu).
+ */
 function ipOf(req) {
-    return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || 'local';
+    return req.ip || (req.socket && req.socket.remoteAddress) || 'local';
 }
 
 function login(req, res) {
@@ -70,10 +75,7 @@ function requireAdmin(req, res, next) {
         sessions.set(token, Date.now() + ADMIN_SESSION_TTL); // odświeżenie sesji
         return next();
     }
-    // Awaryjnie: nagłówek z hasłem (np. dla curl / starych zakładek)
-    if (process.env.ADMIN_PASSWORD && safeEqual(req.headers['x-admin-password'], process.env.ADMIN_PASSWORD)) {
-        return next();
-    }
+    // Uwaga: v2 przyjmowało też hasło w nagłówku x-admin-password - usunięte, bo omijało limit prób logowania.
     res.status(401).json({ error: 'Sesja wygasła. Zaloguj się ponownie.' });
 }
 

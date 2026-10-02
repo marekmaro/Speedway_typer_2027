@@ -47,12 +47,15 @@ function lockTime(match, lockMinutes) {
 
 /**
  * Czy typy na mecz są zamknięte.
- * predictionsFrozen: mecz przełożony już po blokadzie - typy były jawne, więc nie wolno ich zmieniać,
- * nawet jeśli nowa data jest za tydzień.
+ * - predictionsFrozen: mecz przełożony już po blokadzie - typy były jawne, więc nie wolno ich zmieniać,
+ *   nawet jeśli nowa data jest za tydzień,
+ * - isPostponed (termin nieznany) bez zamrożenia: przełożony PRZED blokadą - stara data nic nie znaczy,
+ *   typy zostają ukryte i otwarte do ustalenia nowego terminu.
  */
 function isLocked(match, lockMinutes, now = Date.now()) {
     if (match.predictionsFrozen) return true;
     if (match.homeScore !== null && match.homeScore !== undefined) return true;
+    if (match.isPostponed) return false;
     return now >= lockTime(match, lockMinutes);
 }
 

@@ -187,6 +187,7 @@ router.post('/generate-schedule', wrap(async (req, res) => {
     if (replace) {
         const ids = (await Match.find({ season: y }).select('_id')).map(m => String(m._id));
         await Prediction.deleteMany({ season: y, matchId: { $in: ids } });
+        await ResultDraft.deleteMany({ matchId: { $in: ids } });
         await Match.deleteMany({ season: y });
     }
     let added = 0;
@@ -254,54 +255,87 @@ router.post('/result', wrap(async (req, res) => {
 router.post('/results-bulk', wrap(async (req, res) => {
     const { results } = req.body || {};
     if (!Array.isArray(results)) return res.status(400).json({ error: 'Brak danych.' });
-    let ok = 0;
+    let ok = 0, unchanged = 0;
+    const invalid = [];
     for (const r of results) {
         const h = clampScore(r.homeScore), a = clampScore(r.awayScore);
-        if (h === null || a === null) continue;
         const match = await Match.findById(r.matchId);
         if (!match) continue;
-        if (match.homeScore === h && match.awayScore === a) continue; // bez zmian - nie ruszamy
+        if (h === null || a === null) { invalid.push(`${match.homeTeam} – ${match.awayTeam}`); continue; }
+        if (match.homeScore === h && match.awayScore === a) { unchanged++; continue; } // bez zmian - nie ruszamy
         await applyResult(match, h, a, { source: 'admin', notify: !!req.body.notify });
         await ResultDraft.updateMany({ matchId: String(match._id), status: 'draft' }, { $set: { status: 'rejected', decidedAt: new Date() } });
         ok++;
     }
-    res.json({ message: `Zapisano wyniki ${ok} meczów i przeliczono punkty.` });
+    if (invalid.length && !ok) return res.status(400).json({ error: `Wynik musi być liczbą 0-${MAX_SCORE}: ${invalid.join(', ')}.` });
+    res.json({
+        message: `Zapisano wyniki ${ok} meczów${unchanged ? `, bez zmian: ${unchanged}` : ''}${invalid.length ? `, pominięto błędne: ${invalid.join(', ')}` : ''}.`,
+        saved: ok, unchanged, invalid
+    });
 }));
 
+/**
+ * Edycja meczu. Reguły przełożeń (żużel = deszcz):
+ * - typy NIGDY nie są kasowane - wiszą na _id meczu, nie na dacie,
+ * - jeśli w chwili przełożenia typy były już zablokowane (a więc jawne), zostają zamrożone,
+ *   żeby nikt nie poprawił typu, znając cudze; admin może je świadomie odmrozić,
+ * - "termin nieznany" (isPostponed) przed blokadą: typy zostają otwarte i ukryte do nowej daty,
+ * - ustawienie nowej daty kończy stan "termin nieznany".
+ */
 router.post('/match-edit', wrap(async (req, res) => {
     const { matchId, isMatchOfTheRound, isPostponed, matchDate, note, voidPredictions, predictionsFrozen, isWalkover, round } = req.body || {};
     const match = await Match.findById(matchId);
     if (!match) return res.status(404).json({ error: 'Nie ma takiego meczu.' });
     const season = await Season.findOne({ year: match.season });
     const lockMinutes = S.lockMinutesOf(season);
+    const hasResult = match.homeScore !== null && match.homeScore !== undefined;
+    // Stan PRZED zmianami: czy typy były już zablokowane (jawne)?
+    const lockedBefore = S.isLocked(match, lockMinutes);
     const msgs = [];
 
+    let newDate = null;
     if (matchDate) {
-        const d = new Date(matchDate);
-        if (isNaN(d.getTime())) return res.status(400).json({ error: 'Niepoprawna data.' });
-        if (match.matchDate && d.getTime() !== new Date(match.matchDate).getTime()) {
-            // Przełożenie: typy zostają nietknięte (wiszą na _id meczu, nie na dacie).
-            // Jeśli blokada już minęła (np. deszcz w dniu meczu), typy były jawne -> zamrażamy je,
-            // żeby nikt nie poprawił typu, znając typy innych. Admin może to świadomie wyłączyć.
-            const wasLocked = Date.now() >= S.lockTime(match, lockMinutes);
-            if (!match.originalDate) match.originalDate = match.matchDate;
-            if (wasLocked && match.homeScore === null && predictionsFrozen === undefined) {
-                match.predictionsFrozen = true;
-                msgs.push('typy zamrożone (blokada minęła przed przełożeniem)');
-            }
-            match.matchDate = d;
-            match.isPostponed = false;
-            msgs.push(`nowa data ${d.toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw' })}`);
-        }
+        newDate = new Date(matchDate);
+        if (isNaN(newDate.getTime())) return res.status(400).json({ error: 'Niepoprawna data.' });
+        if (match.matchDate && newDate.getTime() === new Date(match.matchDate).getTime()) newDate = null;
     }
-    if (round !== undefined && Number(round) > 0) match.round = Number(round);
-    if (isMatchOfTheRound !== undefined) match.isMatchOfTheRound = !!isMatchOfTheRound;
+
+    if (round !== undefined && round !== '' && Number(round) !== Number(match.round)) {
+        const r = Number(round);
+        if (!Number.isInteger(r) || r < 1 || r > 99) return res.status(400).json({ error: 'Numer kolejki musi być liczbą 1-99.' });
+        const clash = await Match.findOne({ season: match.season, round: r, homeTeam: match.homeTeam, awayTeam: match.awayTeam });
+        if (clash && String(clash._id) !== String(match._id)) {
+            return res.status(400).json({ error: `W kolejce ${r} jest już mecz ${match.homeTeam} – ${match.awayTeam}.` });
+        }
+        match.round = r;
+        msgs.push(`przeniesiony do kolejki ${r}`);
+    }
+
+    const becamePostponed = isPostponed === true && !match.isPostponed;
     if (isPostponed !== undefined) match.isPostponed = !!isPostponed;
+    if (newDate) {
+        if (!match.originalDate) match.originalDate = match.matchDate;
+        match.matchDate = newDate;
+        match.isPostponed = false; // jest nowy termin
+        msgs.push(`nowy termin ${newDate.toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw', dateStyle: 'short', timeStyle: 'short' })}`);
+    } else if (becamePostponed) {
+        msgs.push('oznaczony jako przełożony (termin nieznany)');
+    }
+
+    if (predictionsFrozen !== undefined) {
+        match.predictionsFrozen = !!predictionsFrozen;
+        msgs.push(match.predictionsFrozen ? 'typy zamrożone' : 'typy odmrożone');
+    } else if (lockedBefore && !hasResult && !match.predictionsFrozen && (newDate || becamePostponed)) {
+        match.predictionsFrozen = true;
+        msgs.push('typy zamrożone (były już jawne w chwili przełożenia)');
+    }
+
+    if (isMatchOfTheRound !== undefined) match.isMatchOfTheRound = !!isMatchOfTheRound;
     if (note !== undefined) match.note = String(note).slice(0, 300);
-    if (predictionsFrozen !== undefined) match.predictionsFrozen = !!predictionsFrozen;
     if (isWalkover !== undefined) {
+        if (isWalkover) match.voidPredictions = true;
+        else if (match.isWalkover && voidPredictions === undefined) match.voidPredictions = false;
         match.isWalkover = !!isWalkover;
-        if (match.isWalkover) match.voidPredictions = true;
     }
     if (voidPredictions !== undefined) match.voidPredictions = !!voidPredictions;
     await match.save();
@@ -312,14 +346,21 @@ router.post('/match-edit', wrap(async (req, res) => {
 
 router.post('/match-add', wrap(async (req, res) => {
     const season = await seasonOf(req);
-    const { round, homeTeam, awayTeam, matchDate } = req.body || {};
+    const { round, homeTeam, awayTeam, matchDate, isMatchOfTheRound } = req.body || {};
     if (!round || !homeTeam || !awayTeam || !matchDate) return res.status(400).json({ error: 'Uzupełnij kolejkę, drużyny i datę.' });
-    await Match.updateOne(
-        { season: season.year, round: Number(round), homeTeam, awayTeam },
-        { $set: { matchDate: new Date(matchDate) } },
-        { upsert: true }
-    );
-    res.json({ message: 'Mecz dodany do terminarza.' });
+    if (homeTeam === awayTeam) return res.status(400).json({ error: 'Drużyna nie może grać sama ze sobą.' });
+    const r = Number(round);
+    if (!Number.isInteger(r) || r < 1 || r > 99) return res.status(400).json({ error: 'Numer kolejki musi być liczbą 1-99.' });
+    const date = new Date(matchDate);
+    if (isNaN(date.getTime())) return res.status(400).json({ error: 'Niepoprawna data.' });
+    const exists = await Match.findOne({ season: season.year, round: r, homeTeam, awayTeam });
+    if (exists) return res.status(400).json({ error: `Ten mecz jest już w kolejce ${r} — zmień jego termin w edycji meczu.` });
+    await Match.create({ season: season.year, round: r, homeTeam, awayTeam, matchDate: date, isMatchOfTheRound: !!isMatchOfTheRound });
+    if (season.teams && season.teams.length && (!season.teams.includes(homeTeam) || !season.teams.includes(awayTeam))) {
+        season.teams = [...new Set([...season.teams, homeTeam, awayTeam])];
+        await season.save();
+    }
+    res.json({ message: `Mecz ${homeTeam} – ${awayTeam} dodany do kolejki ${r}.` });
 }));
 
 router.post('/match-delete', wrap(async (req, res) => {
@@ -339,6 +380,7 @@ router.post('/clean-rounds', wrap(async (req, res) => {
     const matches = await Match.find({ season: season.year, round: { $gte: from } }).select('_id');
     const ids = matches.map(m => String(m._id));
     await Prediction.deleteMany({ season: season.year, matchId: { $in: ids } });
+    await ResultDraft.deleteMany({ matchId: { $in: ids } });
     await Match.deleteMany({ season: season.year, round: { $gte: from } });
     res.json({ message: `Usunięto ${ids.length} meczów od kolejki ${from} wraz z typami.` });
 }));
@@ -350,6 +392,7 @@ router.post('/player', wrap(async (req, res) => {
     const fullName = String(req.body.fullName || '').trim();
     const nickname = String(req.body.nickname || '').trim();
     if (!nickname) return res.status(400).json({ error: 'Pseudonim jest wymagany.' });
+    if (nickname.length > 30) return res.status(400).json({ error: 'Pseudonim może mieć najwyżej 30 znaków.' });
 
     let player = await Player.findOne({ nickname });
     if (!player) {
@@ -390,6 +433,31 @@ router.post('/player/toggle', wrap(async (req, res) => {
     player.isActive = !player.isActive;
     await player.save();
     res.json({ message: `${player.nickname}: ${player.isActive ? 'aktywny' : 'wstrzymany'}.` });
+}));
+
+/**
+ * Zmiana pseudonimu (i imienia). Pseudonim jest kluczem w typach, więc przenosimy go wszędzie:
+ * typy, typy sezonowe, puchar i subskrypcje push. Link (token) gracza się nie zmienia.
+ */
+router.post('/player/rename', wrap(async (req, res) => {
+    const { nickname, newNickname, fullName } = req.body || {};
+    const player = await Player.findOne({ nickname });
+    if (!player) return res.status(404).json({ error: 'Nie ma takiego gracza.' });
+    const next = String(newNickname === undefined ? nickname : newNickname).trim();
+    if (!next) return res.status(400).json({ error: 'Pseudonim nie może być pusty.' });
+    if (next.length > 30) return res.status(400).json({ error: 'Pseudonim może mieć najwyżej 30 znaków.' });
+    if (next !== nickname) {
+        if (await Player.findOne({ nickname: next })) return res.status(409).json({ error: `Pseudonim „${next}” jest już zajęty.` });
+        player.nickname = next;
+        await Prediction.updateMany({ nickname }, { $set: { nickname: next } });
+        await LongTerm.updateMany({ nickname }, { $set: { nickname: next } });
+        await CupMatch.updateMany({ player1: nickname }, { $set: { player1: next } });
+        await CupMatch.updateMany({ player2: nickname }, { $set: { player2: next } });
+        await PushSubscription.updateMany({ nickname }, { $set: { nickname: next } });
+    }
+    if (fullName !== undefined) player.fullName = String(fullName).trim().slice(0, 80);
+    await player.save();
+    res.json({ message: next !== nickname ? `Zmieniono pseudonim: ${nickname} → ${next}. Typy i punkty przeniesione.` : 'Dane gracza zapisane.' });
 }));
 
 /** Zapisanie gracza do sezonu (albo wypisanie). */
@@ -439,6 +507,7 @@ router.post('/predict', wrap(async (req, res) => {
 
     const match = await Match.findById(matchId);
     if (!match) return res.status(404).json({ error: 'Nie ma takiego meczu.' });
+    if (!(await Player.findOne({ nickname }))) return res.status(404).json({ error: 'Nie ma takiego gracza.' });
 
     if (usedJoker) {
         await Prediction.updateMany(
@@ -516,6 +585,9 @@ router.post('/cup-match', wrap(async (req, res) => {
     const season = await seasonOf(req);
     const { stage, roundNumber, player1, player2, score1, score2, autoScore } = req.body || {};
     if (!stage || !player1 || !player2) return res.status(400).json({ error: 'Podaj fazę i obu graczy.' });
+    if (player1 === player2) return res.status(400).json({ error: 'Gracz nie może grać sam ze sobą.' });
+    const badScore = v => v !== '' && v !== undefined && v !== null && !(Number.isFinite(Number(v)) && Number(v) >= 0);
+    if (badScore(score1) || badScore(score2)) return res.status(400).json({ error: 'Punkty muszą być liczbą nieujemną.' });
     await CupMatch.findOneAndUpdate(
         { season: season.year, stage, player1, player2 },
         {
@@ -698,7 +770,7 @@ router.post('/push/test', wrap(async (req, res) => {
 router.get('/backup', wrap(async (req, res) => {
     const data = {
         exportedAt: new Date().toISOString(),
-        version: 2,
+        version: 3,
         seasons: await Season.find(),
         players: await Player.find(),
         matches: await Match.find(),

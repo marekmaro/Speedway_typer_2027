@@ -34,6 +34,13 @@ function seasonPayload(season) {
 
 const seasonListItem = s => ({ year: s.year, label: s.label || `Sezon ${s.year}`, isActive: s.isActive, isFinished: s.isFinished });
 
+/** Typ: liczba całkowita 0-75 (pusty string, ułamek, tekst = błąd). */
+function validScore(v) {
+    if (v === null || v === undefined || v === '') return false;
+    const n = Number(v);
+    return Number.isInteger(n) && n >= 0 && n <= MAX_SCORE;
+}
+
 /** Pola meczu, które widzi frontend. */
 function matchPayload(m) {
     return {
@@ -142,7 +149,7 @@ router.get('/player-data', rateLimit({ key: 'pd', max: 120 }), wrap(async (req, 
     const { matches, predictions, stats } = await loadSeasonCore(year);
     const longTerm = await LongTerm.findOne({ season: year, nickname: player.nickname }).lean();
     const meIdx = stats.findIndex(s => s.nickname === player.nickname);
-    const me = stats[meIdx] || { points: 0, perfects: 0, position: stats.length + 1, byRound: {}, form: [] };
+    const me = stats[meIdx] || { points: 0, perfects: 0, position: null, byRound: {}, form: [] };
     const chasing = meIdx > 0 ? stats[meIdx - 1] : null;
     const chased = meIdx >= 0 && meIdx < stats.length - 1 ? stats[meIdx + 1] : null;
 
@@ -165,7 +172,7 @@ router.get('/player-data', rateLimit({ key: 'pd', max: 120 }), wrap(async (req, 
         longTermLockAt: ltLock ? new Date(ltLock).toISOString() : null,
         longTermOpen: ltLock ? Date.now() < ltLock : true,
         ranking: {
-            position: me.position || stats.length + 1,
+            position: me.position || null,  // null = gracz jeszcze nie jest w rankingu tego sezonu
             totalPlayers: stats.length,
             points: me.points,
             snipers: me.perfects,
@@ -199,7 +206,7 @@ router.post('/submit-all', rateLimit({ key: 'submit', max: 90 }), wrap(async (re
     const matches = await Match.find({ season: year }).lean();
     const byId = S.indexMatches(matches);
 
-    const result = { saved: 0, skipped: 0, longTerm: false, jokerMovedTo: null, warnings: [] };
+    const result = { saved: 0, skipped: 0, deleted: 0, skippedMatches: [], longTerm: false, jokerMovedTo: null, warnings: [] };
 
     // ---- 1. Typy długoterminowe (tylko przed blokadą pierwszego meczu) ----
     const ltLock = firstMatchLock(matches, lockMinutes);
@@ -225,13 +232,18 @@ router.post('/submit-all', rateLimit({ key: 'submit', max: 90 }), wrap(async (re
         ? S.isLocked(byId[currentJoker.matchId], lockMinutes, now)
         : false;
 
-    const requestedJoker = (predictions || []).find(p => p.usedJoker);
+    const requestedJoker = (predictions || []).find(p => p.usedJoker && p.clear !== true);
     let jokerTarget = currentJoker ? currentJoker.matchId : null;
     if (requestedJoker) {
         const m = byId[requestedJoker.matchId];
         const validTarget = m && !S.isLocked(m, lockMinutes, now) && !m.isPostponed && !m.voidPredictions;
+        // Joker musi stać na meczu z typem (zapisanym wcześniej albo w tym żądaniu)
+        const hasTyp = validScore(requestedJoker.homePred) && validScore(requestedJoker.awayPred)
+            || myPreds.some(p => p.matchId === requestedJoker.matchId);
         if (jokerFrozen && currentJoker.matchId !== requestedJoker.matchId) {
             result.warnings.push('Joker jest już wykorzystany w rozegranym meczu - nie można go przenieść.');
+        } else if (validTarget && !hasTyp) {
+            result.warnings.push('Joker wymaga wpisanego typu na ten mecz.');
         } else if (validTarget) {
             jokerTarget = requestedJoker.matchId;
         }
@@ -240,20 +252,33 @@ router.post('/submit-all', rateLimit({ key: 'submit', max: 90 }), wrap(async (re
         const submittedIds = new Set((predictions || []).map(p => p.matchId));
         if (submittedIds.has(currentJoker.matchId)) jokerTarget = null;
     }
+    // Joker na meczu, z którego gracz właśnie usuwa typ, przepada razem z typem
+    if (jokerTarget && (predictions || []).some(p => p.clear === true && p.matchId === jokerTarget)
+        && !(jokerFrozen && currentJoker && currentJoker.matchId === jokerTarget)) {
+        jokerTarget = null;
+    }
 
     // ---- 3. Typy meczowe ----
     const ops = [];
+    const skip = (match, why) => {
+        result.skipped++;
+        if (match) result.skippedMatches.push({ matchId: String(match._id), reason: why });
+    };
     for (const p of (predictions || [])) {
         const match = byId[p.matchId];
-        if (!match) { result.skipped++; continue; }
-        if (match.isPostponed && !match.matchDate) { result.skipped++; continue; }
-        if (match.voidPredictions || S.isLocked(match, lockMinutes, now)) { result.skipped++; continue; }
+        if (!match) { skip(null, 'unknown'); continue; }
+        if (match.voidPredictions) { skip(match, 'void'); continue; }
+        if (S.isLocked(match, lockMinutes, now)) { skip(match, 'locked'); continue; }
 
-        const home = Number(p.homePred), away = Number(p.awayPred);
-        if (!Number.isInteger(home) || !Number.isInteger(away) || home < 0 || away < 0 || home > MAX_SCORE || away > MAX_SCORE) {
-            result.skipped++;
+        // Gracz wyczyścił oba pola = rezygnuje z typu (tylko przed blokadą)
+        if (p.clear === true) {
+            ops.push({ deleteOne: { filter: { season: year, nickname: player.nickname, matchId: p.matchId } } });
+            result.deleted++;
             continue;
         }
+
+        if (!validScore(p.homePred) || !validScore(p.awayPred)) { skip(match, 'invalid'); continue; }
+        const home = Number(p.homePred), away = Number(p.awayPred);
         ops.push({
             updateOne: {
                 filter: { season: year, nickname: player.nickname, matchId: p.matchId },
@@ -264,6 +289,9 @@ router.post('/submit-all', rateLimit({ key: 'submit', max: 90 }), wrap(async (re
         result.saved++;
     }
     if (ops.length) await Prediction.bulkWrite(ops, { ordered: false });
+    if (result.skippedMatches.some(s => s.reason === 'locked')) {
+        result.warnings.push('Część typów nie została zapisana — mecz jest już zablokowany.');
+    }
 
     // ---- 4. Porządki z jokerem (przeniesienie lub rezygnacja) ----
     if (!jokerTarget && !jokerFrozen) {

@@ -97,6 +97,7 @@ function makeModel(name, defaults = {}, unique = null) {
                 upserted = 1;
             }
             if (doc) Object.entries(set).forEach(([k, v]) => { if (!k.startsWith('$')) doc[k] = v; });
+            if (doc && update.$pull) Object.entries(update.$pull).forEach(([k, v]) => { doc[k] = (doc[k] || []).filter(x => String(x) !== String(v)); });
             return { upsertedCount: upserted, modifiedCount: doc ? 1 : 0 };
         }),
         updateMany: (q, update) => new Query(() => {

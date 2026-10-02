@@ -1,15 +1,24 @@
-/* Panel gracza (magiczny link). Typy zapisują się same; serwer pilnuje blokad i jokera. */
+/* Panel gracza (magiczny link). Typy zapisują się same; serwer pilnuje blokad i jokera.
+
+   Zasady zapisu:
+   - wysyłamy tylko mecze, które gracz zmienił (pending) - drugie, nieodświeżone urządzenie
+     nie nadpisze więc nowszych typów starymi wartościami,
+   - wpisane, ale niezapisane liczby przeżywają odświeżenie ekranu (np. po autozapisie innego meczu),
+   - wyczyszczenie obu pól = rezygnacja z typu (tylko przed blokadą). */
 
 const token = new URLSearchParams(location.search).get('id');
 let D = null;
 let viewSeason = null;   // null = sezon aktywny
 let selectedRound = null;
 let saveTimer = null;
-let dirty = false;
 let saving = false;
 let deferredInstall = null;
 let lockRefreshing = false;
+const pending = new Map(); // matchId -> { home, away, joker } - wpisane, jeszcze nie zapisane
+let ltDirty = false;
 const esc = T.escapeHtml;
+
+const isDirty = () => pending.size > 0 || ltDirty;
 
 document.addEventListener('DOMContentLoaded', async () => {
     if (!token) {
@@ -24,26 +33,39 @@ document.addEventListener('DOMContentLoaded', async () => {
         setupInstall();
     }
     setInterval(tick, 1000);
-    setInterval(() => { if (!document.hidden && !dirty && !saving) refresh(); }, 120000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden && !dirty && !saving) refresh(); });
+    setInterval(() => { if (!document.hidden && !isDirty() && !saving) refresh(); }, 120000);
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) flushSave();             // gracz chowa aplikację - zapisz od razu
+        else if (!isDirty() && !saving) refresh();
+    });
+    window.addEventListener('online', () => { if (isDirty()) flushSave(); });
     // Bezpiecznik: gracz zamyka stronę z niezapisanymi typami
-    window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+    window.addEventListener('beforeunload', e => { if (isDirty()) { e.preventDefault(); e.returnValue = ''; } });
 });
 
 function playerDataUrl() {
     return `/api/public/player-data?token=${encodeURIComponent(token)}` + (viewSeason ? `&season=${viewSeason}` : '');
 }
 
+async function fetchData() {
+    const started = Date.now();
+    const data = await T.getJson(playerDataUrl());
+    T.syncClock(data.serverTime, started);
+    return data;
+}
+
 window.changeSeason = async function (year) {
     await flushSave();
     viewSeason = Number(year);
     selectedRound = null;
+    pending.clear();
+    ltDirty = false;
     await load();
 };
 
 async function load() {
     try {
-        D = await T.getJson(playerDataUrl());
+        D = await fetchData();
         renderAll();
     } catch (e) {
         D = null;
@@ -54,7 +76,7 @@ async function load() {
 async function refresh() {
     try {
         const keepRound = selectedRound || activeRound();
-        D = await T.getJson(playerDataUrl());
+        D = await fetchData();
         selectedRound = keepRound;
         renderAll();
     } catch (e) { /* cicho - spróbujemy później */ }
@@ -74,7 +96,7 @@ function renderAll() {
 function renderHeader() {
     const r = D.ranking;
     document.getElementById('p-nick').textContent = D.player.nickname;
-    document.getElementById('p-rank').textContent = `${r.position}/${r.totalPlayers}`;
+    document.getElementById('p-rank').textContent = r.position ? `${r.position}/${r.totalPlayers}` : '–';
     document.getElementById('p-pts').textContent = r.points;
     document.getElementById('p-snipers').textContent = r.snipers;
     document.getElementById('p-avg').textContent = r.avgPerMatch;
@@ -104,7 +126,7 @@ function renderHeader() {
 }
 
 function nextOpenMatch() {
-    const now = Date.now();
+    const now = T.now();
     return (D.matches || [])
         .filter(m => !m.isPostponed && !m.voidPredictions && !T.isLocked(m, D.season.lockMinutes, now))
         .sort((a, b) => new Date(a.matchDate) - new Date(b.matchDate))[0] || null;
@@ -121,7 +143,7 @@ function tick() {
         info.textContent = `${T.shortName(m.homeTeam)} – ${T.shortName(m.awayTeam)}`;
     }
     // Odliczanie na kartach + automatyczne zamknięcie karty, gdy minie blokada
-    const now = Date.now();
+    const now = T.now();
     document.querySelectorAll('.match-card').forEach(card => {
         const match = D.matches.find(x => x._id === card.dataset.id);
         if (!match) return;
@@ -149,10 +171,12 @@ function renderLongTerm() {
     const card = document.getElementById('lt-card');
     ['champion', 'bronze', 'relegation'].forEach(id => {
         const s = document.getElementById(`lt-${id}`);
+        const keep = s.value;
         s.innerHTML = opts;
-        if (D.longTerm && D.longTerm[id]) s.value = D.longTerm[id];
+        if (ltDirty) s.value = keep;                       // niezapisany wybór gracza ma pierwszeństwo
+        else if (D.longTerm && D.longTerm[id]) s.value = D.longTerm[id];
         s.disabled = locked;
-        s.onchange = locked ? null : () => { markDirty(); scheduleSave(); };
+        s.onchange = locked ? null : () => { ltDirty = true; markDirty(); scheduleSave(); };
     });
     const missing = !locked && !(D.longTerm && D.longTerm.champion && D.longTerm.bronze && D.longTerm.relegation);
     if (missing) card.open = true;
@@ -176,7 +200,7 @@ function renderLongTerm() {
 function rounds() { return [...new Set(D.matches.map(m => m.round))].sort((a, b) => a - b); }
 
 function activeRound() {
-    const now = Date.now();
+    const now = T.now();
     const open = D.matches.filter(m => !m.isPostponed && !m.voidPredictions && !T.isLocked(m, D.season.lockMinutes, now))
         .sort((a, b) => new Date(a.matchDate) - new Date(b.matchDate))[0];
     if (open) return open.round;
@@ -199,7 +223,7 @@ function renderRoundNav() {
     const nav = document.getElementById('round-nav');
     if (!all.length) { nav.innerHTML = '<p class="text-sm text-muted">Terminarz nie jest jeszcze wgrany.</p>'; return; }
     const current = selectedRound || activeRound();
-    const now = Date.now();
+    const now = T.now();
     nav.innerHTML = all.map(r => {
         const name = T.roundName(r, D.season.stageNames);
         const short = /^Runda \d+$/.test(name) ? `R${r}` : name;
@@ -218,7 +242,7 @@ function myPred(matchId) { return D.predictions.find(p => p.matchId === matchId)
 function hasPred(p) { return p.homePred !== undefined && p.homePred !== null; }
 
 function jokerInfo() {
-    const now = Date.now();
+    const now = T.now();
     const jokerPred = D.predictions.find(p => p.usedJoker && !(D.matches.find(x => x._id === p.matchId) || {}).voidPredictions);
     if (!jokerPred) return { used: false, frozen: false, matchId: null };
     const m = D.matches.find(x => x._id === jokerPred.matchId);
@@ -231,8 +255,10 @@ function renderMatches() {
     const matches = D.matches.filter(m => m.round === current)
         .sort((a, b) => new Date(a.matchDate) - new Date(b.matchDate));
     const jk = jokerInfo();
-    const now = Date.now();
+    const now = T.now();
     const readOnly = D.player.isActive === false || D.season.isFinished;
+    // Joker zaznaczony, ale jeszcze niezapisany, "wygrywa" z tym z serwera
+    const pendingJoker = [...pending.entries()].find(([, v]) => v.joker === true);
 
     if (!matches.length) { box.innerHTML = '<p class="text-sm text-muted text-center py-6">Brak meczów w tej kolejce.</p>'; return; }
 
@@ -241,6 +267,11 @@ function renderMatches() {
         const p = myPred(match._id);
         const filled = hasPred(p);
         const st = T.matchStatus(match, D.season.lockMinutes, now);
+        const draft = !locked && pending.get(match._id);
+        const homeVal = draft ? draft.home : p.homePred;
+        const awayVal = draft ? draft.away : p.awayPred;
+        const jokerOn = pendingJoker ? pendingJoker[0] === match._id
+            : (draft && draft.joker !== undefined ? draft.joker : !!p.usedJoker);
 
         let jokerHtml = '';
         if (locked) {
@@ -250,7 +281,7 @@ function renderMatches() {
         } else {
             jokerHtml = `
             <label class="mt-3 flex items-center justify-center gap-2 rounded-xl border border-dashed border-gold/50 py-2 text-sm font-bold text-gold cursor-pointer has-[:checked]:bg-gold/10 has-[:checked]:border-solid">
-                <input type="checkbox" class="joker-checkbox w-5 h-5 accent-[rgb(var(--gold))]" data-match="${match._id}" ${p.usedJoker ? 'checked' : ''} onchange="onJokerChange('${match._id}')">
+                <input type="checkbox" class="joker-checkbox w-5 h-5 accent-[rgb(var(--gold))]" data-match="${match._id}" ${jokerOn ? 'checked' : ''} onchange="onJokerChange(this)">
                 ⭐ Joker x${D.season.scoring.jokerMultiplier}${jk.used && jk.matchId !== match._id ? ' <span class="font-semibold text-muted">(przeniesie z innego meczu)</span>' : ''}
             </label>`;
         }
@@ -276,9 +307,9 @@ function renderMatches() {
             </div>
             <div class="grid grid-cols-[1fr_auto_auto_auto_1fr] items-center gap-2">
                 <div class="flex flex-col items-center gap-1 min-w-0">${T.logoHtml(match.homeTeam, 'team-logo-lg')}<span class="text-xs font-bold text-center leading-tight">${esc(T.shortName(match.homeTeam))}</span></div>
-                ${input('home-pred', p.homePred, `Gospodarze: ${esc(match.homeTeam)}`)}
+                ${input('home-pred', homeVal, `Gospodarze: ${esc(match.homeTeam)}`)}
                 <span class="text-2xl font-black text-faint">:</span>
-                ${input('away-pred', p.awayPred, `Goście: ${esc(match.awayTeam)}`)}
+                ${input('away-pred', awayVal, `Goście: ${esc(match.awayTeam)}`)}
                 <div class="flex flex-col items-center gap-1 min-w-0">${T.logoHtml(match.awayTeam, 'team-logo-lg')}<span class="text-xs font-bold text-center leading-tight">${esc(T.shortName(match.awayTeam))}</span></div>
             </div>
             ${!locked ? '<p class="sum-hint mt-2 text-center text-xs text-muted"></p>' : ''}
@@ -296,10 +327,23 @@ function updateSumHint(card) {
     const hint = card.querySelector('.sum-hint');
     if (!hint) return;
     const h = card.querySelector('.home-pred').value, a = card.querySelector('.away-pred').value;
-    if (h === '' || a === '') { hint.textContent = 'Pełny mecz: suma 90 pkt (np. 46:44, 50:40)'; hint.className = 'sum-hint mt-2 text-center text-xs text-muted'; return; }
+    if (h === '' && a === '') {
+        const had = hasPred(myPred(card.dataset.id));
+        hint.textContent = had && pending.has(card.dataset.id) ? 'Puste pola = typ zostanie usunięty' : 'Pełny mecz: suma 90 pkt (np. 46:44, 50:40)';
+        hint.className = `sum-hint mt-2 text-center text-xs ${had && pending.has(card.dataset.id) ? 'text-warn font-bold' : 'text-muted'}`;
+        return;
+    }
+    if (h === '' || a === '') { hint.textContent = 'Wpisz oba wyniki — niepełny typ nie zostanie zapisany'; hint.className = 'sum-hint mt-2 text-center text-xs text-warn font-bold'; return; }
     const sum = Number(h) + Number(a);
     hint.textContent = sum === 90 ? 'Suma 90 ✓' : `Suma ${sum} (pełny mecz to 90)`;
     hint.className = `sum-hint mt-2 text-center text-xs ${sum === 90 ? 'text-ok' : sum > 90 ? 'text-bad font-bold' : 'text-muted'}`;
+}
+
+/** Zapamiętuje to, co gracz wpisał w karcie (jeszcze niezapisane). */
+function capture(card) {
+    const h = card.querySelector('.home-pred'), a = card.querySelector('.away-pred'), j = card.querySelector('.joker-checkbox');
+    if (!h || h.disabled) return;
+    pending.set(card.dataset.id, { home: h.value, away: a.value, joker: j ? j.checked : undefined });
 }
 
 window.sanitize = function (input) {
@@ -307,6 +351,7 @@ window.sanitize = function (input) {
     if (v !== '' && Number(v) > 75) v = '75';
     input.value = v;
     const card = input.closest('.match-card');
+    capture(card);
     updateSumHint(card);
     // Po dwóch cyfrach przeskok do kolejnego pola - typowanie kolejki bez dotykania ekranu między polami
     if (v.length === 2) {
@@ -318,8 +363,18 @@ window.sanitize = function (input) {
     scheduleSave();
 };
 
-window.onJokerChange = function (matchId) {
-    document.querySelectorAll('.joker-checkbox').forEach(cb => { if (cb.dataset.match !== matchId) cb.checked = false; });
+window.onJokerChange = function (cb) {
+    const card = cb.closest('.match-card');
+    const h = card.querySelector('.home-pred').value, a = card.querySelector('.away-pred').value;
+    if (cb.checked && (h === '' || a === '')) {
+        cb.checked = false;
+        T.toast('Najpierw wpisz typ na ten mecz, potem dodaj Jokera.', 'err');
+        return;
+    }
+    document.querySelectorAll('.joker-checkbox').forEach(other => {
+        if (other !== cb && other.checked) { other.checked = false; capture(other.closest('.match-card')); }
+    });
+    capture(card);
     markDirty();
     scheduleSave(300);
 };
@@ -331,7 +386,7 @@ function setState(text, cls = 'text-muted') {
     el.textContent = text;
 }
 
-function markDirty() { dirty = true; setState('Niezapisane…', 'text-warn'); }
+function markDirty() { setState('Niezapisane…', 'text-warn'); }
 
 function scheduleSave(delay = 1200) {
     clearTimeout(saveTimer);
@@ -340,59 +395,101 @@ function scheduleSave(delay = 1200) {
 
 async function flushSave() {
     clearTimeout(saveTimer);
-    if (dirty) await save();
+    if (isDirty()) await save();
 }
 
+/** Tylko zmienione mecze. Zwraca też listę niepełnych typów (jedno pole puste). */
 function buildPayload() {
     const payload = { token, season: D.season.year, predictions: [] };
-    if (D.longTermOpen) {
+    const incomplete = [];
+    if (ltDirty && D.longTermOpen) {
         payload.longTerm = {
             champion: document.getElementById('lt-champion').value,
             bronze: document.getElementById('lt-bronze').value,
             relegation: document.getElementById('lt-relegation').value
         };
     }
-    document.querySelectorAll('.match-card').forEach(card => {
-        const h = card.querySelector('.home-pred');
-        const a = card.querySelector('.away-pred');
-        const j = card.querySelector('.joker-checkbox');
-        if (!h || !a || h.disabled) return;
-        if (h.value === '' || a.value === '') return;
+    for (const [matchId, v] of pending) {
+        const match = D.matches.find(m => m._id === matchId);
+        if (!match) { pending.delete(matchId); continue; }
+        const saved = myPred(matchId);
+        if (v.home === '' && v.away === '') {
+            if (hasPred(saved)) payload.predictions.push({ matchId, clear: true });
+            else pending.delete(matchId); // nic do zrobienia
+            continue;
+        }
+        if (v.home === '' || v.away === '') { incomplete.push(match); continue; }
         payload.predictions.push({
-            matchId: card.dataset.id,
-            homePred: parseInt(h.value, 10),
-            awayPred: parseInt(a.value, 10),
-            usedJoker: j ? j.checked : false
+            matchId,
+            homePred: parseInt(v.home, 10),
+            awayPred: parseInt(v.away, 10),
+            // joker nieruszany w tej karcie = taki, jak na serwerze (inaczej zmiana wyniku zdjęłaby jokera)
+            usedJoker: v.joker !== undefined ? v.joker : !!saved.usedJoker
         });
-    });
-    return payload;
+    }
+    return { payload, incomplete };
 }
 
 async function save(manual = false) {
     if (saving) { scheduleSave(800); return null; }
+    if (!D) return null;
+    const { payload, incomplete } = buildPayload();
+    const nothingToSend = !payload.predictions.length && !payload.longTerm;
+    if (nothingToSend) {
+        if (incomplete.length) {
+            setState('Uzupełnij typ', 'text-warn');
+            if (manual) T.toast(`Uzupełnij oba pola: ${incomplete.map(m => `${T.shortName(m.homeTeam)} – ${T.shortName(m.awayTeam)}`).join(', ')}`, 'err');
+        } else {
+            setState('✓ Zapisane', 'text-ok');
+            if (manual) T.toast('Wszystko już zapisane');
+        }
+        return null;
+    }
+
     saving = true;
     setState('Zapisuję…', 'text-brand');
+    // Migawka wysłanych wartości: jeśli gracz pisze dalej w trakcie zapisu, nie zgubimy zmian
+    const sent = new Map(payload.predictions.map(p => [p.matchId, JSON.stringify(pending.get(p.matchId))]));
+    const ltSent = !!payload.longTerm;
     try {
-        const out = await T.postJson('/api/public/submit-all', buildPayload());
-        dirty = false;
-        setState('✓ Zapisane', 'text-ok');
+        const out = await T.postJson('/api/public/submit-all', payload);
+        sent.forEach((snap, id) => { if (JSON.stringify(pending.get(id)) === snap) pending.delete(id); });
+        (out.skippedMatches || []).forEach(sk => pending.delete(sk.matchId)); // zablokowane - i tak nie przejdą
+        if (ltSent) ltDirty = false;
         (out.warnings || []).forEach(w => T.toast(w, 'err'));
+
         // Odświeżamy dane, aby zobaczyć stan po stronie serwera (np. przeniesiony joker)
         const keepRound = selectedRound || activeRound();
-        const focusedId = document.activeElement && document.activeElement.closest && document.activeElement.closest('.match-card');
-        const focusSide = document.activeElement && document.activeElement.classList.contains('away-pred') ? 'away' : 'home';
-        D = await T.getJson(playerDataUrl());
+        const active = document.activeElement;
+        const focusCard = active && active.closest ? active.closest('.match-card') : null;
+        const focusSide = active && active.classList && active.classList.contains('away-pred') ? 'away' : 'home';
+        D = await fetchData();
         selectedRound = keepRound;
         renderHeader(); renderRoundNav(); renderMatches(); renderMyForm(); renderMissing();
-        if (focusedId) {
-            const el = document.querySelector(`.match-card[data-id="${focusedId.dataset.id}"] .${focusSide}-pred`);
-            if (el && !el.disabled) el.focus({ preventScroll: true });
+        if (focusCard) {
+            const el = document.querySelector(`.match-card[data-id="${focusCard.dataset.id}"] .${focusSide}-pred`);
+            if (el && !el.disabled) { el.focus({ preventScroll: true }); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (e) { /* ignore */ } }
         }
-        if (manual) T.toast(`Zapisano ${out.saved} ${out.saved === 1 ? 'typ' : 'typów'}${out.skipped ? `, pominięto ${out.skipped} (blokada)` : ''}`);
+
+        if (out.skipped) setState('⚠ Część niezapisana', 'text-bad');
+        else if (incomplete.length) setState('Uzupełnij typ', 'text-warn');
+        else if (isDirty()) setState('Niezapisane…', 'text-warn');
+        else setState('✓ Zapisane', 'text-ok');
+
+        if (manual) {
+            const parts = [`Zapisano ${out.saved} ${out.saved === 1 ? 'typ' : 'typów'}`];
+            if (out.deleted) parts.push(`usunięto ${out.deleted}`);
+            if (out.skipped) parts.push(`pominięto ${out.skipped} (blokada)`);
+            if (incomplete.length) parts.push(`niepełne: ${incomplete.length}`);
+            T.toast(parts.join(', '), out.skipped || incomplete.length ? 'err' : 'ok');
+        }
+        if (isDirty() && !incomplete.length) scheduleSave(600); // coś doszło w trakcie zapisu
         return out;
     } catch (e) {
-        setState('✕ Błąd zapisu', 'text-bad');
-        T.toast(`Nie zapisano: ${e.message}`, 'err');
+        const offline = !navigator.onLine || /fetch|network/i.test(e.message);
+        setState(offline ? 'Brak sieci — ponowię' : '✕ Błąd zapisu', 'text-bad');
+        T.toast(offline ? 'Brak połączenia — typy zapiszą się, gdy wróci sieć.' : `Nie zapisano: ${e.message}`, 'err');
+        if (offline) scheduleSave(10000);
         return null;
     } finally {
         saving = false;
@@ -412,7 +509,7 @@ window.saveAll = async function () {
 /* ---------------- podsumowania ---------------- */
 function renderMissing() {
     const box = document.getElementById('missing-box');
-    const now = Date.now();
+    const now = T.now();
     const missing = D.matches.filter(m => !m.isPostponed && !m.voidPredictions && !T.isLocked(m, D.season.lockMinutes, now) && !hasPred(myPred(m._id)));
     if (!missing.length || D.player.isActive === false) { box.classList.add('hidden'); return; }
     box.classList.remove('hidden');

@@ -5,11 +5,11 @@
 ------------------------------------------------------------------- */
 
 const DEFAULT_SLOTS = [
-    // typowy weekend Ekstraligi: piątek 18:00 i 20:30, niedziela 16:00 i 19:15
-    { dayOffset: 0, time: '18:00' },
-    { dayOffset: 0, time: '20:30' },
-    { dayOffset: 2, time: '16:00' },
-    { dayOffset: 2, time: '19:15' }
+    // typowy weekend Ekstraligi (dni liczone od poniedziałku kolejki): piątek 18:00 i 20:30, niedziela 16:00 i 19:15
+    { dayOffset: 4, time: '18:00' },
+    { dayOffset: 4, time: '20:30' },
+    { dayOffset: 6, time: '16:00' },
+    { dayOffset: 6, time: '19:15' }
 ];
 
 /** Algorytm karuzeli (Berger) - pary na kolejkę. */
@@ -30,12 +30,37 @@ function roundRobin(teams) {
     return rounds;
 }
 
+const TZ = 'Europe/Warsaw';
+
+/** Przesunięcie strefy (w minutach) w danej chwili, np. +120 latem, +60 zimą. */
+function tzOffsetMinutes(ts, timeZone = TZ) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }).formatToParts(new Date(ts));
+    const get = t => Number(parts.find(p => p.type === t).value);
+    const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'));
+    return Math.round((asUtc - ts) / 60000);
+}
+
+/**
+ * Data i godzina "jak w Polsce" -> Date, niezależnie od strefy czasowej serwera
+ * (Render domyślnie działa w UTC). Uwzględnia zmianę czasu letni/zimowy.
+ */
+function warsawDate(y, m, d, hh, mm) {
+    const guess = Date.UTC(y, m - 1, d, hh, mm);
+    let ts = guess - tzOffsetMinutes(guess) * 60000;
+    const again = guess - tzOffsetMinutes(ts) * 60000; // korekta w okolicy zmiany czasu
+    if (again !== ts) ts = again;
+    return new Date(ts);
+}
+
 function applyTime(baseDate, dayOffset, time) {
     const [h, min] = String(time).split(':').map(Number);
-    const d = new Date(baseDate.getTime());
-    d.setDate(d.getDate() + dayOffset);
-    d.setHours(h || 18, min || 0, 0, 0);
-    return d;
+    // baseDate to północ UTC danego dnia (z "YYYY-MM-DD"); dzień liczymy w UTC, godzinę w czasie polskim
+    const day = new Date(baseDate.getTime() + dayOffset * 86400000);
+    return warsawDate(day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(),
+        Number.isFinite(h) ? h : 18, Number.isFinite(min) ? min : 0);
 }
 
 /**
@@ -53,7 +78,8 @@ function generateSchedule({ teams, startDate, weekGap = 1, slots, doubleRound = 
     if (clean.length < 4) throw new Error('Podaj co najmniej 4 drużyny.');
     if (clean.length % 2 !== 0) throw new Error('Liczba drużyn musi być parzysta.');
     if (new Set(clean).size !== clean.length) throw new Error('Nazwy drużyn muszą być unikalne.');
-    const base = new Date(`${startDate}T12:00:00`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(startDate || ''))) throw new Error('Niepoprawna data startu (użyj formatu YYYY-MM-DD).');
+    const base = new Date(`${startDate}T00:00:00Z`);
     if (isNaN(base.getTime())) throw new Error('Niepoprawna data startu (użyj formatu YYYY-MM-DD).');
 
     const timeSlots = (slots && slots.length) ? slots : DEFAULT_SLOTS;
@@ -66,8 +92,7 @@ function generateSchedule({ teams, startDate, weekGap = 1, slots, doubleRound = 
     let weekCursor = 0;
     allRounds.forEach((pairs, idx) => {
         const round = idx + 1;
-        const monday = new Date(base.getTime());
-        monday.setDate(monday.getDate() + weekCursor * 7 * weekGap);
+        const monday = new Date(base.getTime() + weekCursor * 7 * weekGap * 86400000);
         pairs.forEach(([home, away], i) => {
             const slot = timeSlots[i % timeSlots.length];
             out.push({
@@ -84,4 +109,4 @@ function generateSchedule({ teams, startDate, weekGap = 1, slots, doubleRound = 
     return out.sort((a, b) => a.round - b.round || new Date(a.matchDate) - new Date(b.matchDate));
 }
 
-module.exports = { generateSchedule, roundRobin, DEFAULT_SLOTS };
+module.exports = { generateSchedule, roundRobin, DEFAULT_SLOTS, warsawDate, tzOffsetMinutes };

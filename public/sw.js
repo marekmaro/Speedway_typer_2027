@@ -4,13 +4,14 @@
    - CSS/JS/ikony: z pamięci, w tle odświeżane (szybki start apki),
    - panel admina i zapisy (POST) NIGDY nie idą przez cache,
    - powiadomienia push: przypomnienia o typach, wyniki, alerty admina.
-   Zmiana VERSION wymusza odświeżenie plików u wszystkich graczy.
+   Wersję (VERSION i ?v= w adresach) wstawia serwer automatycznie przy każdym deployu.
 ------------------------------------------------------------------- */
-const VERSION = 'typer-v3.0.0';
+// __V__ podmienia serwer na skrót plików CSS/JS - każdy deploy = nowa wersja = świeży cache
+const VERSION = 'typer-__V__';
 const SHELL = [
-    '/', '/index.html', '/typuj.html', '/gracz.html',
-    '/css/app.css', '/js/shared.js', '/js/main.js', '/js/typuj.js', '/js/gracz.js',
-    '/icons/icon-192.png', '/icons/badge-72.png'
+    '/', '/typuj.html', '/gracz.html',
+    '/css/app.css?v=__V__', '/js/shared.js?v=__V__', '/js/main.js?v=__V__', '/js/typuj.js?v=__V__', '/js/gracz.js?v=__V__',
+    '/icons/icon-192.png', '/icons/badge-72.png', '/icons/icon.svg'
 ];
 
 self.addEventListener('install', event => {
