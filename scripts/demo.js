@@ -41,10 +41,14 @@ async function seedDemo(db) {
         }
         matches.push(doc);
     }
-    // jeden mecz przełożony przez deszcz po blokadzie, jeden czeka na zatwierdzenie wyniku ze scrapera
+    // ostatnia rozegrana kolejka: dwa mecze czekają na wynik (jeden ze scrapera, drugi do wpisania)
+    const lastPlayed = Math.max(...matches.filter(m => m.homeScore !== null).map(m => m.round));
+    const waiting = matches.filter(m => m.round === lastPlayed).sort((a, b) => a.matchDate - b.matchDate).slice(-2);
+    waiting.forEach(m => { m.homeScore = null; m.awayScore = null; m.resultSource = null; });
+    // jeden mecz przełożony przez deszcz po blokadzie
     const r7 = matches.filter(m => m.round === 7);
     if (r7[0]) { r7[0].originalDate = r7[0].matchDate; r7[0].matchDate = new Date(now + 9 * DAY); r7[0].predictionsFrozen = true; r7[0].note = 'Deszcz — przełożony'; }
-    const pendingDraft = matches.find(m => m.homeScore === null && !m.predictionsFrozen && new Date(m.matchDate).getTime() < now - 3 * 3600 * 1000);
+    const pendingDraft = waiting[0];
 
     for (const [i, nick] of PLAYERS.entries()) {
         await db.Player.create({ nickname: nick, fullName: '', token: tokenOf(i), seasons: [2027], isActive: true });

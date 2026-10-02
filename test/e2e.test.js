@@ -386,8 +386,7 @@ async function freshMatch(startsInMin, extra = {}) {
         await close(p);
     });
 
-    // ---- testy panelu admina są dopisywane niżej (sekcja "Panel admina") ----
-    if (typeof adminTests === 'function') await adminTests();
+    await runAdminTests();
 
     await browser.close();
     server.close();
@@ -395,5 +394,401 @@ async function freshMatch(startsInMin, extra = {}) {
     process.exit(process.exitCode || 0);
 })();
 
-/* placeholder - zastępowany przez sekcję admina */
-let adminTests;
+/* ================================================================
+   PANEL ADMINA
+================================================================ */
+const ADMIN_PASS = process.env.ADMIN_PASSWORD;
+
+async function adminPage(opts = {}) {
+    const p = await newPage(opts);
+    await p.goto(base + '/admin', { waitUntil: 'networkidle' });
+    await p.fill('#admin-pass-input', ADMIN_PASS);
+    await p.click('#login-modal form button');
+    await p.waitForSelector('#view section, #view .card');
+    return p;
+}
+const toastHas = async (p, txt) => {
+    await p.waitForFunction(t => { const el = document.getElementById('t-toast'); return el && el.textContent.includes(t); }, txt, { timeout: 8000 });
+    await p.waitForFunction(() => !document.body.dataset.busy, null, { timeout: 8000 });
+};
+const confirmYes = p => p.click('[data-cf="1"]');
+const confirmNo = p => p.click('[data-cf="0"]');
+async function goView(p, hash) {
+    await p.evaluate(h => { location.hash = h; }, hash);
+    await p.waitForTimeout(150);
+}
+/** Data w formacie pola datetime-local, w czasie polskim. */
+function warsawInput(date) {
+    return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Warsaw', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(date).replace(' ', 'T');
+}
+async function mkAdminMatch(round, startsInMin, extra = {}) {
+    const m = await db.Match.create({ season: 2027, round, homeTeam: 'Fogo Unia Leszno', awayTeam: 'Gezet Stal Gorzów', matchDate: new Date(Date.now() + startsInMin * MIN), ...extra });
+    cache.invalidate();
+    return m;
+}
+
+async function runAdminTests() {
+    group('Panel admina');
+
+    await test('logowanie: złe hasło = komunikat, dobre = pulpit z licznikiem spraw', async () => {
+        const p = await newPage();
+        await p.goto(base + '/admin', { waitUntil: 'networkidle' });
+        await p.fill('#admin-pass-input', 'zle-haslo');
+        await p.click('#login-modal form button');
+        await p.waitForFunction(() => /Złe hasło/.test(document.getElementById('login-error').textContent));
+        await p.fill('#admin-pass-input', ADMIN_PASS);
+        await p.click('#login-modal form button');
+        await p.waitForSelector('#view section');
+        assert.ok(/Wyniki do zatwierdzenia/.test(await p.locator('#view').innerText()));
+        assert.ok(/Mecze bez wyniku/.test(await p.locator('#view').innerText()));
+        assert.ok(Number(await p.locator('#tab-nav .badge-dot').innerText()) >= 2, 'licznik na ikonie Pulpitu');
+        noErrors(p);
+        await close(p);
+    });
+
+    await test('pulpit: zatwierdzenie wyniku ze scrapera z poprawionymi liczbami przelicza punkty', async () => {
+        const draft = db.ResultDraft._rows.find(d => d.status === 'draft');
+        const p = await adminPage();
+        const box = p.locator(`[data-draft="${draft._id}"]`);
+        await box.locator('[data-draft-h]').fill('46');
+        await box.locator('[data-draft-a]').fill('44');
+        assert.ok(/suma 90/.test(await box.locator('[data-sum]').innerText()));
+        await box.locator('[data-act="draft-approve"]').click();
+        await toastHas(p, 'Zatwierdzono');
+        const m = matchById(draft.matchId);
+        assert.deepStrictEqual([m.homeScore, m.awayScore], [46, 44]);
+        assert.strictEqual(m.resultSource, 'admin', 'poprawiony przez admina');
+        const preds = db.Prediction._rows.filter(x => x.matchId === draft.matchId);
+        assert.ok(preds.length && preds.every(x => x.pointsEarned !== null), 'punkty przeliczone');
+        assert.strictEqual(await p.locator(`[data-draft="${draft._id}"]`).count(), 0);
+        await close(p);
+    });
+
+    await test('pulpit: wynik wpisany przy "Mecze bez wyniku" zapisuje się z paska "Zapisz wyniki"', async () => {
+        const p = await adminPage();
+        const row = p.locator('[data-row]').first();
+        const id = await row.getAttribute('data-row');
+        await row.locator('[data-res="h"]').fill('50');
+        await row.locator('[data-res="a"]').fill('40');
+        await p.waitForSelector('#savebar');
+        assert.ok(/Niezapisane wyniki: 1/.test(await p.locator('#savebar').innerText()));
+        await p.click('[data-act="save-results"]');
+        await toastHas(p, 'Zapisano wyniki 1');
+        assert.deepStrictEqual([matchById(id).homeScore, matchById(id).awayScore], [50, 40]);
+        assert.strictEqual(await p.locator('#savebar').count(), 0);
+        await close(p);
+    });
+
+    await test('mecze: niemożliwa suma wymaga potwierdzenia ("Anuluj" nie zapisuje), "Cofnij" czyści pasek', async () => {
+        const m = await mkAdminMatch(60, -2 * 24 * 60);
+        const m2 = await mkAdminMatch(60, -2 * 24 * 60 + 120, { homeTeam: 'Gezet Stal Gorzów', awayTeam: 'Fogo Unia Leszno' });
+        const p = await adminPage();
+        await goView(p, 'mecze/60');
+        const card = p.locator(`[data-card="${m._id}"]`);
+        await card.locator('[data-res="h"]').fill('60');
+        await card.locator('[data-res="a"]').fill('40');
+        assert.ok(/niemożliwe/.test(await card.innerText()), 'podpowiedź o sumie > 90');
+        await p.click('[data-act="save-results"]');
+        await p.waitForSelector('[data-cf="1"]');
+        assert.ok(/Nietypowa suma/.test(await p.locator('.sheet').last().innerText()));
+        await confirmNo(p);
+        assert.strictEqual(matchById(m._id).homeScore, null);
+        await p.click('[data-act="save-results"]');
+        await confirmYes(p);
+        await toastHas(p, 'Zapisano wyniki');
+        assert.strictEqual(matchById(m._id).homeScore, 60);
+        const card2 = p.locator(`[data-card="${m2._id}"]`);
+        await card2.locator('[data-res="h"]').fill('44');
+        await p.waitForSelector('#savebar');
+        await p.click('[data-act="discard-results"]');
+        assert.strictEqual(await p.locator('#savebar').count(), 0);
+        assert.strictEqual(await p.locator(`[data-card="${m2._id}"] [data-res="h"]`).inputValue(), '');
+        await close(p);
+    });
+
+    await test('mecze: admin wpisuje typ za gracza z listy pod meczem (lista zostaje rozwinięta)', async () => {
+        const m = await mkAdminMatch(61, -3 * 24 * 60, { homeScore: 46, awayScore: 44 });
+        const p = await adminPage();
+        await goView(p, 'mecze/61');
+        await p.click(`[data-card="${m._id}"] [data-act="toggle-preds"]`);
+        const row = p.locator(`[data-tip="Tomek|${m._id}"]`);
+        await row.locator('[data-tip-h]').fill('46');
+        await row.locator('[data-tip-a]').fill('44');
+        await row.locator('[data-act="save-tip"]').click();
+        await toastHas(p, 'zapisany');
+        const pr = predOf('Tomek', String(m._id));
+        assert.deepStrictEqual([pr.homePred, pr.awayPred, pr.source, pr.pointsEarned], [46, 44, 'admin', 5]);
+        assert.strictEqual(await p.locator(`[data-preds="${m._id}"]:not(.hidden)`).count(), 1, 'lista typów dalej rozwinięta');
+        await noHorizontalScroll(p);
+        await close(p);
+    });
+
+    await test('edycja meczu: przełożenie po blokadzie (deszcz) zamraża typy, podpowiedź to zapowiada', async () => {
+        const m = await mkAdminMatch(62, 0.5);
+        await db.Prediction.create({ season: 2027, nickname: 'Kasia', matchId: String(m._id), homePred: 45, awayPred: 45 });
+        const p = await adminPage();
+        await goView(p, 'mecze/62');
+        await p.click(`[data-card="${m._id}"] [data-act="edit-match"]`);
+        await p.waitForSelector('#ed-date');
+        assert.ok(await p.locator('#ed-freeze-hint.hidden').count() === 1);
+        await p.fill('#ed-date', warsawInput(new Date(Date.now() + 5 * 24 * 3600 * 1000)));
+        assert.ok(await p.locator('#ed-freeze-hint:not(.hidden)').count() === 1, 'podpowiedź o zamrożeniu');
+        await p.click('[data-act="save-match"]');
+        await toastHas(p, 'zamrożone');
+        const doc = matchById(m._id);
+        assert.strictEqual(doc.predictionsFrozen, true);
+        assert.ok(doc.originalDate, 'pierwotny termin zapamiętany');
+        await close(p);
+    });
+
+    await test('edycja meczu: "termin nieznany" przed blokadą, potem "Ustal termin" z pulpitu', async () => {
+        const m = await mkAdminMatch(63, 3 * 24 * 60);
+        const p = await adminPage();
+        await goView(p, 'mecze/63');
+        await p.click(`[data-card="${m._id}"] [data-act="edit-match"]`);
+        await p.check('#ed-postponed');
+        await p.click('[data-act="save-match"]');
+        await toastHas(p, 'przełożony');
+        assert.strictEqual(matchById(m._id).isPostponed, true);
+        assert.strictEqual(matchById(m._id).predictionsFrozen, false, 'przed blokadą nie zamrażamy');
+        await goView(p, 'pulpit');
+        await p.click(`[data-act="edit-match"][data-id="${m._id}"][data-focus="date"]`);
+        await p.fill('#ed-date', warsawInput(new Date(Date.now() + 10 * 24 * 3600 * 1000)));
+        assert.strictEqual(await p.isChecked('#ed-postponed'), false, 'nowa data wyłącza "termin nieznany"');
+        await p.click('[data-act="save-match"]');
+        await toastHas(p, 'nowy termin');
+        assert.strictEqual(matchById(m._id).isPostponed, false);
+        await close(p);
+    });
+
+    await test('edycja meczu: walkower (typy anulowane) i cofnięcie walkowera', async () => {
+        const m = await mkAdminMatch(64, -24 * 60);
+        await db.Prediction.create({ season: 2027, nickname: 'Ola', matchId: String(m._id), homePred: 40, awayPred: 0 });
+        const p = await adminPage();
+        await goView(p, 'mecze/64');
+        await p.click(`[data-card="${m._id}"] [data-act="edit-match"]`);
+        await p.click('[data-act="walkover"][data-h="40"]');
+        await confirmYes(p);
+        await toastHas(p, 'walkower');
+        let doc = matchById(m._id);
+        assert.deepStrictEqual([doc.homeScore, doc.isWalkover, doc.voidPredictions], [40, true, true]);
+        assert.strictEqual(predOf('Ola', String(m._id)).pointsEarned, null);
+        await p.click('[data-act="walkover-undo"]');
+        await confirmYes(p);
+        await toastHas(p, 'wyczyszczony');
+        doc = matchById(m._id);
+        assert.deepStrictEqual([doc.homeScore, doc.isWalkover, doc.voidPredictions], [null, false, false]);
+        await close(p);
+    });
+
+    await test('edycja meczu: przeniesienie do zajętej kolejki = czytelny błąd; usuwanie wymaga potwierdzenia', async () => {
+        await mkAdminMatch(65, 4 * 24 * 60);
+        const b = await mkAdminMatch(66, 4 * 24 * 60);
+        const p = await adminPage();
+        await goView(p, 'mecze/66');
+        await p.click(`[data-card="${b._id}"] [data-act="edit-match"]`);
+        await p.fill('#ed-round', '65');
+        await p.click('[data-act="save-match"]');
+        await toastHas(p, 'jest już mecz');
+        assert.strictEqual(matchById(b._id).round, 66);
+        await p.click('[data-act="delete-match"]');
+        await confirmNo(p);
+        assert.ok(matchById(b._id), 'po "Anuluj" mecz zostaje');
+        await p.click('[data-act="delete-match"]');
+        await confirmYes(p);
+        await toastHas(p, 'usunięte');
+        assert.strictEqual(matchById(b._id), undefined);
+        await close(p);
+    });
+
+    await test('gracze: wyszukiwanie i dodanie gracza z gotowym linkiem do wysłania', async () => {
+        const p = await adminPage();
+        await goView(p, 'gracze');
+        await p.fill('[data-input="search"]', 'kas');
+        assert.strictEqual(await p.locator('[data-act="open-player"]').count(), 1);
+        await p.fill('[data-input="search"]', '');
+        await p.click('[data-act="add-player"]');
+        await p.fill('#np-nick', 'Nowak');
+        await p.click('[data-act="add-player-save"]');
+        await p.waitForFunction(() => /dodany/.test(document.querySelector('.sheet-body').textContent));
+        const pl = db.Player._rows.find(x => x.nickname === 'Nowak');
+        assert.ok(pl && pl.seasons.includes(2027));
+        assert.ok((await p.locator('.sheet-body input[readonly]').inputValue()).endsWith(pl.token));
+        await close(p);
+    });
+
+    await test('gracze: nowy link (reset), wstrzymanie konta i zmiana pseudonimu z przeniesieniem typów', async () => {
+        const pl = db.Player._rows.find(x => x.nickname === 'Nowak');
+        const oldToken = pl.token;
+        await db.Prediction.create({ season: 2027, nickname: 'Nowak', matchId: 'm-nowak', homePred: 1, awayPred: 2 });
+        const p = await adminPage();
+        await goView(p, 'gracze');
+        await p.click('[data-act="open-player"][data-nick="Nowak"]');
+        await p.click('[data-act="new-token"]');
+        await confirmYes(p);
+        await toastHas(p, 'Nowy link');
+        assert.notStrictEqual(pl.token, oldToken);
+        assert.ok((await p.locator('.sheet-body input[readonly]').inputValue()).endsWith(pl.token), 'szuflada pokazuje nowy link');
+        await p.click('[data-act="toggle-active"]');
+        await toastHas(p, 'wstrzymany');
+        assert.strictEqual(pl.isActive, false);
+        await p.fill('#pl-nick', 'Nowakowski');
+        await p.click('[data-act="rename-player"]');
+        await confirmYes(p);
+        await toastHas(p, 'Zmieniono pseudonim');
+        assert.strictEqual(pl.nickname, 'Nowakowski');
+        assert.ok(db.Prediction._rows.find(x => x.matchId === 'm-nowak').nickname === 'Nowakowski');
+        assert.strictEqual(await p.locator('#sheet-title').innerText(), 'Nowakowski');
+        await p.keyboard.press('Escape');
+        assert.strictEqual(await p.locator('.sheet').count(), 0, 'ESC zamyka szufladę');
+        await close(p);
+    });
+
+    await test('gracze: pseudonim z apostrofem i znakami HTML nie psuje panelu', async () => {
+        await db.Player.create({ nickname: `O'Neil <b>`, fullName: '', token: 'feedfeedfeedfeedfeedfeed', seasons: [2027], isActive: true });
+        const p = await adminPage();
+        await goView(p, 'gracze');
+        await p.click(`[data-act="open-player"][data-nick="O'Neil <b>"]`);
+        assert.strictEqual(await p.locator('#sheet-title').innerText(), `O'Neil <b>`);
+        await p.click('[data-act="toggle-active"]');
+        await toastHas(p, 'wstrzymany');
+        noErrors(p);
+        await close(p);
+    });
+
+    await test('sezon: blokada z szybkiego wyboru, punktacja z potwierdzeniem i przeliczeniem', async () => {
+        const p = await adminPage();
+        await goView(p, 'sezon/ustawienia');
+        await p.click('[data-act="lock-preset"][data-v="15"]');
+        await p.click('[data-act="save-lock"]');
+        await toastHas(p, 'zapisane');
+        assert.strictEqual(db.Season._rows.find(x => x.year === 2027).lockMinutes, 15);
+        await p.fill('#set-lock', '1');
+        await p.click('[data-act="save-lock"]');
+        await toastHas(p, 'zapisane');
+        const exact = db.Prediction._rows.find(x => x.season === 2027 && x.pointsEarned === 5);
+        await p.fill('#set-exact', '6');
+        await p.click('[data-act="save-scoring"]');
+        await confirmYes(p);
+        await toastHas(p, 'przeliczone');
+        assert.strictEqual(exact.pointsEarned, 6);
+        await p.fill('#set-exact', '5');
+        await p.click('[data-act="save-scoring"]');
+        await confirmYes(p);
+        await toastHas(p, 'przeliczone');
+        assert.strictEqual(exact.pointsEarned, 5);
+        await close(p);
+    });
+
+    await test('sezon: korekta tabeli z panelu widoczna w podglądzie i na stronie', async () => {
+        const p = await adminPage();
+        await goView(p, 'sezon/tabela');
+        await p.click('[data-act="adj-add"]');
+        const row = p.locator('#adj-list [data-adj]').last();
+        await row.locator('[data-adj-team]').selectOption('Fogo Unia Leszno');
+        await row.locator('[data-adj-points]').fill('-2');
+        await row.locator('[data-adj-reason]').fill('walkower R5');
+        await p.click('[data-act="adj-save"]');
+        await toastHas(p, 'zapisane');
+        assert.ok(/korekta -2/.test(await p.locator('#view').innerText()));
+        const s = db.Season._rows.find(x => x.year === 2027);
+        assert.strictEqual(s.standingsAdjustments[0].points, -2);
+        s.standingsAdjustments = [];
+        cache.invalidate();
+        await close(p);
+    });
+
+    await test('sezon: źródła wyników - zły adres odrzucony, dobry i alias zapisane', async () => {
+        const p = await adminPage();
+        await goView(p, 'sezon/auto');
+        await p.fill('#auto-urls', 'zly-adres');
+        await p.click('[data-act="save-auto"]');
+        await toastHas(p, 'https://');
+        await p.fill('#auto-urls', 'https://wyniki.example/ekstraliga');
+        await p.fill('[data-alias="PRES Grupa Deweloperska Toruń"]', 'Apator, KS Toruń');
+        await p.click('[data-act="save-auto"]');
+        await toastHas(p, 'zapisane');
+        const s = db.Season._rows.find(x => x.year === 2027);
+        assert.deepStrictEqual(s.scraperUrls, ['https://wyniki.example/ekstraliga']);
+        assert.deepStrictEqual(s.teamAliases['PRES Grupa Deweloperska Toruń'], ['Apator', 'KS Toruń']);
+        await close(p);
+    });
+
+    await test('sezon: nowy sezon (nieaktywny) - panel przełącza się na niego z ostrzeżeniem', async () => {
+        const p = await adminPage();
+        await goView(p, 'sezon/sezony');
+        await p.click('summary:has-text("Nowy sezon")');
+        await p.fill('#ns-year', '2031');
+        await p.click('[data-act="new-season"][data-activate="0"]');
+        await toastHas(p, 'Sezon 2031 zapisany');
+        await p.waitForFunction(() => document.getElementById('season-picker').value === '2031');
+        assert.ok(/nie jest aktywny/.test(await p.locator('#season-warning').innerText()));
+        const s = db.Season._rows.find(x => x.year === 2031);
+        assert.strictEqual(s.lockMinutes, 1);
+        assert.strictEqual(s.isActive, false);
+        await p.selectOption('#season-picker', '2027');
+        await p.waitForFunction(() => document.getElementById('season-warning').classList.contains('hidden'));
+        await close(p);
+    });
+
+    await test('puchar: rozstawienie par i usunięcie pary', async () => {
+        const p = await adminPage();
+        await goView(p, 'puchar');
+        await p.fill('#cg-stage', 'Półfinał');
+        await p.fill('#cg-count', '4');
+        await p.click('[data-act="cup-generate"]');
+        await toastHas(p, 'Rozstawiono 2');
+        const n = db.CupMatch._rows.filter(c => c.stage === 'Półfinał').length;
+        assert.strictEqual(n, 2);
+        await p.locator('[data-act="cup-delete"]').last().click();
+        await confirmYes(p);
+        await toastHas(p, 'usunięta');
+        assert.strictEqual(db.CupMatch._rows.length, 2, 'ćwierćfinał z demo + jeden półfinał');
+        await close(p);
+    });
+
+    await test('system: kopia zapasowa pobiera się jako JSON', async () => {
+        const p = await adminPage();
+        await goView(p, 'system');
+        const [download] = await Promise.all([p.waitForEvent('download'), p.click('[data-act="backup"]')]);
+        assert.ok(/^typer-kopia-\d{4}-\d{2}-\d{2}\.json$/.test(download.suggestedFilename()));
+        const file = await download.path();
+        const data = JSON.parse(require('fs').readFileSync(file, 'utf8'));
+        assert.ok(data.matches.length > 50 && data.players.length >= 6);
+        await close(p);
+    });
+
+    await test('sesja wygasła: panel wraca do logowania zamiast pokazywać błędy', async () => {
+        const p = await newPage();
+        await p.goto(base + '/admin', { waitUntil: 'networkidle' });
+        await p.evaluate(() => sessionStorage.setItem('adminToken', 'wygasly-token'));
+        await p.reload({ waitUntil: 'networkidle' });
+        assert.ok(await p.locator('#login-modal:not(.hidden)').count() === 1);
+        noErrors(p);
+        await close(p);
+    });
+
+    await test('nawigacja na telefonie: "Więcej" prowadzi do Pucharu i Systemu', async () => {
+        const p = await adminPage();
+        await p.click('#tab-nav a[href="#wiecej"]');
+        await p.click('#view a[href="#puchar"]');
+        await p.waitForFunction(() => document.getElementById('view-title').textContent === 'Puchar Typerów');
+        assert.ok(await p.locator('#tab-nav a[href="#wiecej"][aria-current="page"]').count() === 1, '"Więcej" podświetlone');
+        await close(p);
+    });
+
+    await test('wszystkie widoki admina bez błędów i poziomego przewijania (telefon i komputer)', async () => {
+        for (const opts of [{}, { ctx: { viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1 } }]) {
+            const p = await adminPage(opts);
+            for (const v of ['pulpit', 'mecze', 'gracze', 'puchar', 'sezon/ustawienia', 'sezon/tabela', 'sezon/auto', 'sezon/sezony', 'system', 'wiecej']) {
+                await goView(p, v);
+                await noHorizontalScroll(p);
+            }
+            await goView(p, 'mecze');
+            for (const b of await p.locator('[data-act="toggle-preds"]').all()) await b.click();
+            await noHorizontalScroll(p);
+            noErrors(p);
+            await close(p);
+        }
+    });
+}

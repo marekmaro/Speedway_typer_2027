@@ -835,6 +835,42 @@ const fresh = id => db.Match.findById(String(id));
         assert.strictEqual(other.status, 200, 'inny adres może się zalogować');
     });
 
+    await test('I7 zastąpienie terminarza i usuwanie kolejek usuwają też wyniki ze scrapera', async () => {
+        await db.Season.create({ year: 2033, label: 'Test 2033', isActive: false, lockMinutes: 1, teams: TEAMS, stageNames: {}, scoring: {} });
+        const m1 = await db.Match.create({ season: 2033, round: 1, homeTeam: TEAMS[0], awayTeam: TEAMS[1], matchDate: inMin(-300) });
+        const m2 = await db.Match.create({ season: 2033, round: 16, homeTeam: TEAMS[2], awayTeam: TEAMS[3], matchDate: inMin(-300) });
+        await db.ResultDraft.create({ season: 2033, matchId: String(m1._id), homeScore: 46, awayScore: 44, status: 'draft' });
+        await db.ResultDraft.create({ season: 2033, matchId: String(m2._id), homeScore: 46, awayScore: 44, status: 'draft' });
+        await admin('/clean-rounds', { season: 2033, from: 15 });
+        assert.strictEqual(await db.ResultDraft.findOne({ matchId: String(m2._id) }), null, 'usuwanie kolejek');
+        await admin('/generate-schedule', { season: 2033, teams: TEAMS, startDate: '2033-04-04', replace: true });
+        assert.strictEqual(await db.ResultDraft.findOne({ matchId: String(m1._id) }), null, 'zastąpienie terminarza');
+    });
+
+    await test('I8 render.yaml: build instaluje devDependencies (Tailwind) mimo NODE_ENV=production', async () => {
+        const yaml = require('fs').readFileSync(require('path').join(__dirname, '..', 'render.yaml'), 'utf8');
+        const build = (yaml.match(/buildCommand:\s*(.+)/) || [])[1] || '';
+        assert.ok(/NODE_ENV[\s\S]*production/.test(yaml), 'NODE_ENV=production w render.yaml');
+        assert.ok(/npm ci --include=dev/.test(build), `buildCommand: ${build}`);
+        assert.ok(require('../package.json').devDependencies.tailwindcss, 'Tailwind w devDependencies');
+    });
+
+    await test('I9 świeża instalacja: sezon bieżącego roku z blokadą 1 min; dane z v1: sezon LEGACY z blokadą 24 h', async () => {
+        const { getActiveSeason } = require('../services/seasons');
+        const { lockMinutesOf } = require('../services/scoring');
+        db.Season._rows.length = 0;
+        db.Match._rows.length = 0;
+        const fresh = await getActiveSeason();
+        const year = Number(new Date().toLocaleString('en-US', { timeZone: 'Europe/Warsaw', year: 'numeric' }));
+        assert.strictEqual(fresh.year, year);
+        assert.strictEqual(lockMinutesOf(fresh), 1);
+        db.Season._rows.length = 0;
+        await db.Match.create({ round: 1, homeTeam: 'A', awayTeam: 'B', matchDate: new Date() }); // mecz z v1 (bez sezonu)
+        const legacy = await getActiveSeason();
+        assert.strictEqual(legacy.year, Number(process.env.LEGACY_SEASON || 2026));
+        assert.strictEqual(lockMinutesOf(legacy), 24 * 60, 'stara blokada zostaje');
+    });
+
     server.close();
     console.log(`\n${passed} scenariuszy przeszło${failed ? `, ${failed} NIE przeszło: ${failures.join(' | ')}` : ''}.\n`);
     process.exit(process.exitCode || 0);

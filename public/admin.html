@@ -3,346 +3,76 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <title>Panel administratora — Typer</title>
+    <title>Panel admina — Żużlowy Typer</title>
     <meta name="robots" content="noindex">
     <meta name="theme-color" content="#0b1220">
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="stylesheet" href="/css/app.css?v=__V__">
 </head>
-<body class="pb-16">
+<body class="pb-24 lg:pb-10">
+    <div id="busybar" class="fixed top-0 inset-x-0 h-1 z-[120] bg-brand/80 animate-pulse" aria-hidden="true"></div>
 
-    <!-- LOGOWANIE -->
-    <div id="login-modal" class="fixed inset-0 bg-night flex items-center justify-center z-50 p-4">
+    <!-- ===== LOGOWANIE ===== -->
+    <div id="login-modal" class="fixed inset-0 bg-night flex items-center justify-center z-[100] p-4">
         <form class="card card-pad w-full max-w-sm text-center" onsubmit="event.preventDefault(); loginAdmin()">
             <img src="/icons/icon.svg" alt="" class="w-12 h-12 rounded-xl mx-auto mb-3">
             <h1 class="text-xl font-black">Panel administratora</h1>
-            <p class="text-xs text-muted mb-4">Hasło sprawdza serwer, sesja wygasa po 8 h bezczynności.</p>
+            <p class="text-xs text-muted mb-4">Hasło sprawdza serwer. Sesja wygasa po 8 h bezczynności.</p>
             <label for="admin-pass-input" class="sr-only">Hasło</label>
             <input type="password" id="admin-pass-input" placeholder="Hasło" autocomplete="current-password" class="input text-center mb-3">
             <button class="btn-primary w-full">Zaloguj</button>
             <p id="login-error" class="text-sm text-bad font-bold mt-3" role="alert"></p>
+            <a href="/" class="inline-block mt-4 text-xs font-bold text-muted">← Strona typera</a>
         </form>
     </div>
 
-    <div id="dashboard" class="hidden">
-        <header class="bg-night text-white" style="padding-top: env(safe-area-inset-top)">
-            <div class="mx-auto max-w-5xl px-4 pt-3 pb-2">
-                <div class="flex items-center gap-3">
+    <div id="dashboard" class="hidden lg:flex lg:min-h-screen">
+
+        <!-- ===== MENU BOCZNE (komputer) ===== -->
+        <aside class="hidden lg:flex lg:flex-col w-64 shrink-0 bg-night text-white px-3 py-4 sticky top-0 h-screen">
+            <div class="flex items-center gap-2 px-2 mb-6">
+                <img src="/icons/icon.svg" alt="" class="w-9 h-9 rounded-xl">
+                <div><div class="font-black leading-tight">Panel admina</div><div class="text-[11px] text-white/50">Żużlowy Typer</div></div>
+            </div>
+            <nav class="flex flex-col gap-1" aria-label="Sekcje panelu" id="side-nav"></nav>
+            <div class="mt-auto flex flex-col gap-1">
+                <a href="/" class="side-link">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg>Strona typera</a>
+                <button data-act="logout" class="side-link">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 17l5-5-5-5M20 12H9M12 21H5a2 2 0 01-2-2V5a2 2 0 012-2h7"/></svg>Wyloguj</button>
+            </div>
+        </aside>
+
+        <div class="flex-1 min-w-0">
+            <!-- ===== NAGŁÓWEK ===== -->
+            <header class="bg-night text-white lg:bg-transparent lg:text-ink sticky top-0 z-30 lg:static" style="padding-top: env(safe-area-inset-top)">
+                <div class="mx-auto max-w-4xl px-4 py-3 flex items-center gap-3">
+                    <img src="/icons/icon.svg" alt="" class="w-8 h-8 rounded-lg lg:hidden">
                     <div class="min-w-0 flex-1">
-                        <h1 class="text-lg font-black">Centrum dowodzenia</h1>
-                        <label class="text-xs text-white/60">Sezon:
-                            <select id="season-picker" class="bg-white/10 rounded-md px-1.5 py-0.5 text-xs font-bold text-white border-0"></select>
-                        </label>
+                        <h1 id="view-title" class="text-lg lg:text-2xl font-black leading-tight truncate">Pulpit</h1>
+                        <div class="flex items-center gap-2 text-xs">
+                            <label for="season-picker" class="text-white/60 lg:text-muted">Sezon</label>
+                            <select id="season-picker" class="min-w-0 max-w-[12rem] rounded-md px-1.5 py-0.5 font-bold border-0 bg-white/10 text-white lg:bg-raised lg:text-ink lg:border lg:border-line"></select>
+                            <span id="season-state" class="chip bg-white/10 text-white/80 lg:bg-raised lg:text-muted hidden sm:inline-flex"></span>
+                        </div>
                     </div>
-                    <a href="/" class="btn btn-sm bg-white/10 text-white">Strona</a>
-                    <button onclick="logoutAdmin()" class="btn btn-sm bg-white/10 text-white">Wyloguj</button>
+                    <button data-act="refresh" class="btn btn-sm bg-white/10 text-white lg:bg-raised lg:text-ink lg:border lg:border-line" aria-label="Odśwież dane">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7"/></svg>
+                    </button>
                 </div>
-                <nav class="scroller mt-3 !mx-0 !px-0" aria-label="Zakładki">
-                    <button data-tab="tab-drafts" class="atab toplink shrink-0">📥 Do zatwierdzenia <span id="drafts-badge" class="hidden chip bg-brand text-white ml-1"></span></button>
-                    <button data-tab="tab-results" class="atab toplink shrink-0">Wyniki</button>
-                    <button data-tab="tab-matches" class="atab toplink shrink-0">Terminarz</button>
-                    <button data-tab="tab-players" class="atab toplink shrink-0">Gracze</button>
-                    <button data-tab="tab-tips" class="atab toplink shrink-0">Typy</button>
-                    <button data-tab="tab-cup" class="atab toplink shrink-0">Puchar</button>
-                    <button data-tab="tab-season" class="atab toplink shrink-0">Sezony</button>
-                    <button data-tab="tab-system" class="atab toplink shrink-0">System</button>
-                </nav>
-            </div>
-        </header>
+            </header>
 
-        <main class="mx-auto max-w-5xl px-4 py-4">
-
-        <!-- ============ DO ZATWIERDZENIA (scraper) ============ -->
-        <div id="tab-drafts" class="tab-content space-y-4">
-            <div class="card card-pad">
-                <div class="flex flex-wrap items-center gap-2 justify-between">
-                    <div>
-                        <h2 class="section-title">Wyniki pobrane automatycznie</h2>
-                        <p class="text-sm text-muted">Nic nie liczy się, dopóki nie zatwierdzisz. Sprawdź fragment ze źródła i uwagi.</p>
-                    </div>
-                    <div class="flex flex-wrap gap-2">
-                        <button onclick="runScrape()" class="btn-ghost btn-sm">🔄 Pobierz teraz</button>
-                        <button onclick="approveAll()" class="btn-ok btn-sm">✓ Zatwierdź wszystkie bez uwag krytycznych</button>
-                    </div>
+            <main class="mx-auto max-w-4xl px-4 py-4">
+                <div id="season-warning" class="hidden mb-4 rounded-2xl border border-warn/40 bg-warn/10 text-warn px-4 py-3 text-sm font-bold"></div>
+                <div id="view" aria-live="polite">
+                    <div class="skeleton h-28 mb-3"></div><div class="skeleton h-40"></div>
                 </div>
-                <label class="flex items-center gap-2 mt-3 text-sm font-semibold text-muted">
-                    <input type="checkbox" id="drafts-notify" checked class="w-5 h-5"> wyślij graczom push z ich punktami
-                </label>
-            </div>
-            <div id="drafts-list" class="space-y-3"></div>
+            </main>
         </div>
 
-        <!-- ============ WYNIKI ============ -->
-        <div id="tab-results" class="tab-content space-y-4">
-            <div class="card card-pad">
-                <h2 class="section-title mb-3">Wyniki całej kolejki</h2>
-                <div class="flex flex-wrap gap-2 items-end mb-3">
-                    <div class="min-w-[10rem]"><label class="label" for="bulk-round">Kolejka</label>
-                        <select id="bulk-round" class="input" onchange="renderBulkResults()"></select></div>
-                    <label class="flex items-center gap-2 text-sm font-semibold text-muted min-h-[44px]">
-                        <input type="checkbox" id="bulk-notify" class="w-5 h-5"> push do graczy</label>
-                    <button onclick="saveBulkResults()" class="btn-ok">Zapisz wyniki kolejki</button>
-                </div>
-                <div id="bulk-results" class="space-y-2"></div>
-                <p class="text-xs text-muted mt-2">Pełny mecz: suma 90 pkt (15 biegów × 6). Mniej = upadki/wykluczenia albo mecz przerwany (zaliczony po 8 biegach).</p>
-            </div>
-
-            <div class="card card-pad">
-                <h2 class="section-title mb-3">Pojedynczy mecz / walkower</h2>
-                <select id="result-select" class="input mb-3" onchange="loadResult()" aria-label="Mecz"></select>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="label" for="res-home">Gospodarze</label><input type="number" inputmode="numeric" id="res-home" class="input text-center text-2xl font-black"></div>
-                    <div><label class="label" for="res-away">Goście</label><input type="number" inputmode="numeric" id="res-away" class="input text-center text-2xl font-black"></div>
-                </div>
-                <label class="flex items-start gap-2 mb-2 text-sm font-semibold">
-                    <input type="checkbox" id="res-walkover" class="w-5 h-5 mt-0.5">
-                    <span>Walkower — wynik liczy się do tabeli ligi, typy graczy są anulowane, Joker wraca do gracza</span></label>
-                <label class="flex items-center gap-2 mb-3 text-sm font-semibold text-muted">
-                    <input type="checkbox" id="res-notify" class="w-5 h-5"> push do graczy</label>
-                <div class="flex gap-2">
-                    <button onclick="saveResult()" class="btn-ok flex-1">Zapisz wynik</button>
-                    <button onclick="clearResult()" class="btn-ghost">Wyczyść</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- ============ TERMINARZ ============ -->
-        <div id="tab-matches" class="tab-content space-y-4">
-            <div class="card card-pad">
-                <h2 class="section-title mb-1">Edycja meczu</h2>
-                <p class="text-sm text-muted mb-3">Zmiana daty <strong class="text-ink">nie rusza typów</strong>. Jeśli blokada już minęła (np. deszcz w dniu meczu), typy zostają automatycznie zamrożone, bo były jawne.</p>
-                <select id="edit-select" class="input mb-3" onchange="loadMatchSettings()" aria-label="Mecz"></select>
-                <div class="grid sm:grid-cols-[1fr_8rem] gap-3 mb-3">
-                    <div><label class="label" for="edit-date">Pierwszy bieg (czas polski)</label><input type="datetime-local" id="edit-date" class="input"></div>
-                    <div><label class="label" for="edit-round">Kolejka</label><input type="number" id="edit-round" class="input"></div>
-                </div>
-                <div id="edit-info" class="text-xs text-muted mb-3"></div>
-                <div class="grid sm:grid-cols-2 gap-2 mb-3 text-sm font-semibold">
-                    <label class="flex items-center gap-2"><input type="checkbox" id="edit-motr" class="w-5 h-5"> ⭐ Mecz kolejki (Złoty Kask)</label>
-                    <label class="flex items-center gap-2"><input type="checkbox" id="edit-postponed" class="w-5 h-5"> Przełożony — czeka na nowy termin</label>
-                    <label class="flex items-center gap-2"><input type="checkbox" id="edit-frozen" class="w-5 h-5"> 🔒 Typy zamrożone</label>
-                    <label class="flex items-center gap-2"><input type="checkbox" id="edit-void" class="w-5 h-5"> Typy anulowane (mecz odwołany)</label>
-                </div>
-                <label class="label" for="edit-note">Notatka widoczna na stronie</label>
-                <input type="text" id="edit-note" class="input mb-3" placeholder="np. przerwany po 11 biegach (deszcz), wynik zaliczony">
-                <div class="flex gap-2">
-                    <button onclick="saveMatchEdit()" class="btn-primary flex-1">Zapisz zmiany</button>
-                    <button onclick="deleteMatch()" class="btn-danger">Usuń mecz</button>
-                </div>
-            </div>
-
-            <div class="card card-pad">
-                <h2 class="section-title mb-3">Dodaj mecz ręcznie</h2>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <div><label class="label" for="add-round">Kolejka</label><input type="number" id="add-round" class="input"></div>
-                    <div><label class="label" for="add-date">Data</label><input type="datetime-local" id="add-date" class="input"></div>
-                    <div><label class="label" for="add-home">Gospodarz</label><select id="add-home" class="input"></select></div>
-                    <div><label class="label" for="add-away">Gość</label><select id="add-away" class="input"></select></div>
-                </div>
-                <button onclick="addMatch()" class="btn-primary mt-3 w-full">Dodaj do terminarza</button>
-            </div>
-        </div>
-
-        <!-- ============ GRACZE ============ -->
-        <div id="tab-players" class="tab-content space-y-4">
-            <div class="card card-pad">
-                <h2 class="section-title mb-3">Nowy gracz</h2>
-                <div class="grid sm:grid-cols-2 gap-2 mb-3">
-                    <div><label class="label" for="new-fullname">Imię i nazwisko</label><input type="text" id="new-fullname" class="input"></div>
-                    <div><label class="label" for="new-nickname">Pseudonim (widoczny w rankingu)</label><input type="text" id="new-nickname" class="input"></div>
-                </div>
-                <button onclick="addPlayer()" class="btn-primary w-full">Dodaj gracza do sezonu</button>
-            </div>
-            <div class="card card-pad">
-                <h2 class="section-title mb-1">Gracze i magiczne linki</h2>
-                <p class="text-sm text-muted mb-3">Link jest hasłem gracza — wysyłaj prywatnie. „Nowy link” unieważnia stary (to odpowiednik resetu hasła). „Wstrzymaj” blokuje typowanie.</p>
-                <div id="players-list" class="space-y-2"></div>
-            </div>
-        </div>
-
-        <!-- ============ TYPY ============ -->
-        <div id="tab-tips" class="tab-content space-y-4">
-            <div class="card card-pad">
-                <h2 class="section-title mb-1">🕵️ Ręczna edycja typów</h2>
-                <p class="text-sm text-muted mb-3">Omija blokadę czasową — gdy ktoś podał typ SMS-em albo doszło do pomyłki.</p>
-                <div class="grid grid-cols-2 gap-2 mb-3">
-                    <div><label class="label" for="tips-player">Gracz</label><select id="tips-player" class="input" onchange="renderPlayerTips()"></select></div>
-                    <div><label class="label" for="tips-round">Kolejka</label><select id="tips-round" class="input" onchange="renderPlayerTips()"></select></div>
-                </div>
-                <div id="tips-container" class="space-y-2"></div>
-            </div>
-            <div class="card card-pad">
-                <h2 class="section-title mb-3">Typy sezonowe gracza</h2>
-                <select id="lt-player" class="input mb-2" onchange="loadLongTerm()" aria-label="Gracz"></select>
-                <div class="grid sm:grid-cols-3 gap-2 mb-3">
-                    <div><label class="label" for="lt-gold">🥇 Mistrz</label><select id="lt-gold" class="input"></select></div>
-                    <div><label class="label" for="lt-bronze">🥉 Brąz</label><select id="lt-bronze" class="input"></select></div>
-                    <div><label class="label" for="lt-releg">⬇️ Spadek</label><select id="lt-releg" class="input"></select></div>
-                </div>
-                <button onclick="saveLongTerm()" class="btn-primary w-full">Zapisz typy sezonowe</button>
-            </div>
-        </div>
-
-        <!-- ============ PUCHAR ============ -->
-        <div id="tab-cup" class="tab-content space-y-4">
-            <div class="card card-pad">
-                <h2 class="section-title mb-3">Rozstaw drabinkę wg rankingu</h2>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 items-end">
-                    <div><label class="label" for="cupg-stage">Faza</label><input type="text" id="cupg-stage" class="input" placeholder="Ćwierćfinał"></div>
-                    <div><label class="label" for="cupg-round">Kolejka</label><select id="cupg-round" class="input"></select></div>
-                    <div><label class="label" for="cupg-count">Ilu graczy</label><input type="number" id="cupg-count" class="input" placeholder="8"></div>
-                    <button onclick="generateCup()" class="btn-primary">Rozstaw (1 vs ostatni)</button>
-                </div>
-            </div>
-            <div class="card card-pad">
-                <h2 class="section-title mb-3">Para ręcznie</h2>
-                <div class="grid grid-cols-2 gap-2 mb-2">
-                    <div><label class="label" for="cup-stage">Faza</label><input type="text" id="cup-stage" class="input"></div>
-                    <div><label class="label" for="cup-round">Kolejka</label><select id="cup-round" class="input"></select></div>
-                    <div><label class="label" for="cup-p1">Gracz 1</label><select id="cup-p1" class="input"></select></div>
-                    <div><label class="label" for="cup-p2">Gracz 2</label><select id="cup-p2" class="input"></select></div>
-                    <div><label class="label" for="cup-s1">Punkty 1 (puste = auto)</label><input type="number" id="cup-s1" class="input"></div>
-                    <div><label class="label" for="cup-s2">Punkty 2 (puste = auto)</label><input type="number" id="cup-s2" class="input"></div>
-                </div>
-                <label class="flex items-center gap-2 mb-3 text-sm font-semibold text-muted"><input type="checkbox" id="cup-auto" checked class="w-5 h-5"> licz punkty automatycznie z kolejki</label>
-                <div class="flex gap-2">
-                    <button onclick="saveCup()" class="btn-primary flex-1">Zapisz parę</button>
-                    <button onclick="autoscoreCup()" class="btn-ghost">🔄 Przelicz H2H</button>
-                </div>
-            </div>
-            <div class="card card-pad"><h2 class="section-title mb-3">Aktualna drabinka</h2><div id="cup-list" class="space-y-2"></div></div>
-        </div>
-
-        <!-- ============ SEZONY ============ -->
-        <div id="tab-season" class="tab-content space-y-4">
-            <div class="card card-pad">
-                <h2 class="section-title mb-3">Sezony w bazie</h2>
-                <div id="seasons-list" class="space-y-2"></div>
-            </div>
-
-            <div class="card card-pad">
-                <h2 class="section-title mb-1">⚙️ Ustawienia edytowanego sezonu</h2>
-                <p class="text-sm text-muted mb-3">Zmiana punktacji przelicza cały sezon. Zmiana blokady nie rusza typów.</p>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-                    <div><label class="label" for="set-lock">Blokada (min przed startem)</label><input type="number" id="set-lock" class="input" min="0"></div>
-                    <div><label class="label" for="set-exact">Dokładny wynik</label><input type="number" id="set-exact" class="input"></div>
-                    <div><label class="label" for="set-diff">Zwycięzca + różnica</label><input type="number" id="set-diff" class="input"></div>
-                    <div><label class="label" for="set-winner">Zwycięzca</label><input type="number" id="set-winner" class="input"></div>
-                    <div><label class="label" for="set-motr">Bonus Złoty Kask</label><input type="number" id="set-motr" class="input"></div>
-                    <div><label class="label" for="set-joker">Mnożnik Jokera</label><input type="number" id="set-joker" class="input"></div>
-                    <div><label class="label" for="set-lt">Typ sezonowy</label><input type="number" id="set-lt" class="input"></div>
-                </div>
-                <label class="label" for="set-adjust">Korekty tabeli ligi (linia: drużyna ; punkty ; powód)</label>
-                <textarea id="set-adjust" rows="3" class="input py-2 font-mono text-xs mb-3" placeholder="Fogo Unia Leszno ; -2 ; walkower w R5 (decyzja GKSŻ)"></textarea>
-                <label class="label" for="set-aliases">Aliasy drużyn dla scrapera (linia: drużyna = alias1, alias2)</label>
-                <textarea id="set-aliases" rows="3" class="input py-2 font-mono text-xs mb-3" placeholder="PRES Grupa Deweloperska Toruń = Apator, KS Toruń"></textarea>
-                <label class="label" for="set-urls">Źródła wyników (adresy stron, jeden na linię)</label>
-                <textarea id="set-urls" rows="3" class="input py-2 font-mono text-xs mb-1" placeholder="https://portal-sportowy.pl/zuzel/ekstraliga/wyniki"></textarea>
-                <p id="set-urls-env" class="text-xs text-muted mb-3"></p>
-                <button onclick="saveSeasonSettings()" class="btn-primary w-full">Zapisz ustawienia sezonu</button>
-            </div>
-
-            <div class="card card-pad">
-                <h2 class="section-title mb-1">🆕 Nowy sezon (krok 1)</h2>
-                <p class="text-sm text-muted mb-3">Bieżący sezon zostaje nietknięty i trafia do archiwum.</p>
-                <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mb-2">
-                    <div><label class="label" for="ns-year">Rok</label><input type="number" id="ns-year" class="input" placeholder="2027"></div>
-                    <div><label class="label" for="ns-label">Nazwa</label><input type="text" id="ns-label" class="input" placeholder="PGE Ekstraliga 2027"></div>
-                    <div><label class="label" for="ns-lock">Blokada (min przed startem)</label><input type="number" id="ns-lock" class="input" value="1"></div>
-                </div>
-                <label class="label" for="ns-teams">Drużyny (jedna na linię)</label>
-                <textarea id="ns-teams" rows="8" class="input py-2 font-mono text-xs mb-2"></textarea>
-                <label class="flex items-center gap-2 text-sm font-semibold text-muted mb-3"><input type="checkbox" id="ns-copy" checked class="w-5 h-5"> przepisz aktywnych graczy</label>
-                <div class="flex flex-wrap gap-2">
-                    <button onclick="copyTeamsFromCurrent()" class="btn-ghost">Wklej drużyny z bieżącego</button>
-                    <button onclick="saveNewSeason(false)" class="btn-primary">Zapisz (nieaktywny)</button>
-                    <button onclick="saveNewSeason(true)" class="btn-ok">Zapisz i aktywuj</button>
-                </div>
-            </div>
-
-            <div class="card card-pad">
-                <h2 class="section-title mb-1">📅 Nowy sezon (krok 2) — terminarz</h2>
-                <p class="text-sm text-muted mb-3">Dwumecze każdy z każdym (8 drużyn = 14 kolejek po 4 mecze).</p>
-                <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mb-2">
-                    <div><label class="label" for="gen-season">Sezon</label><input type="number" id="gen-season" class="input"></div>
-                    <div><label class="label" for="gen-start">Poniedziałek 1. kolejki</label><input type="date" id="gen-start" class="input"></div>
-                    <div class="col-span-2 md:col-span-1"><label class="label" for="gen-skip">Wolny tydzień po kolejkach</label><input type="text" id="gen-skip" class="input" placeholder="np. 3,6,11"></div>
-                </div>
-                <span class="label">Godziny meczów w kolejce</span>
-                <div id="gen-slots" class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3"></div>
-                <div class="flex flex-wrap gap-2">
-                    <button onclick="previewSchedule()" class="btn-ghost">👁️ Podgląd</button>
-                    <button onclick="saveSchedule(false)" class="btn-primary">Zapisz terminarz</button>
-                    <button onclick="saveSchedule(true)" class="btn-danger">Zastąp istniejący (usuwa typy!)</button>
-                </div>
-                <pre id="gen-preview" class="mt-3 bg-night text-ok text-[11px] p-3 rounded-xl max-h-64 overflow-auto hidden"></pre>
-            </div>
-
-            <div class="card card-pad">
-                <h2 class="section-title mb-3">Import terminarza z JSON</h2>
-                <textarea id="schedule-json" rows="4" class="input py-2 font-mono text-xs mb-2"
-                    placeholder='[{"round":1,"homeTeam":"Drużyna A","awayTeam":"Drużyna B","matchDate":"2027-04-09T18:00:00+02:00","isMatchOfTheRound":true}]'></textarea>
-                <button onclick="importSchedule()" class="btn-ghost w-full">Wczytaj JSON do edytowanego sezonu</button>
-            </div>
-
-            <div class="card card-pad">
-                <h2 class="section-title mb-1">🏆 Zamknięcie sezonu</h2>
-                <p class="text-sm text-muted mb-3">Wskaż faktyczne wyniki ligi — gracze dostaną punkty za typy sezonowe.</p>
-                <div class="grid sm:grid-cols-3 gap-2 mb-2">
-                    <div><label class="label" for="fin-gold">Mistrz Polski</label><select id="fin-gold" class="input"></select></div>
-                    <div><label class="label" for="fin-bronze">Brąz</label><select id="fin-bronze" class="input"></select></div>
-                    <div><label class="label" for="fin-releg">Spadek</label><select id="fin-releg" class="input"></select></div>
-                </div>
-                <label class="flex items-center gap-2 text-sm font-semibold text-muted mb-3"><input type="checkbox" id="fin-mark" class="w-5 h-5"> oznacz jako zakończony (archiwum)</label>
-                <button onclick="finishSeason()" class="btn-primary w-full">Rozlicz typy sezonowe</button>
-            </div>
-        </div>
-
-        <!-- ============ SYSTEM ============ -->
-        <div id="tab-system" class="tab-content space-y-4">
-            <div class="card card-pad">
-                <h2 class="section-title mb-1">🔔 Powiadomienia</h2>
-                <p id="push-status" class="text-sm text-muted mb-3"></p>
-                <div class="flex flex-wrap gap-2">
-                    <button onclick="adminPushSubscribe()" class="btn-primary">Powiadamiaj ten telefon o nowych wynikach</button>
-                    <button onclick="adminPushTest()" class="btn-ghost">Wyślij test</button>
-                    <button onclick="runReminders()" class="btn-ghost">Wyślij przypomnienia teraz</button>
-                </div>
-            </div>
-
-            <div class="card card-pad">
-                <h2 class="section-title mb-3">Dziennik zadań w tle</h2>
-                <ul id="jobs-list" class="divide-y divide-line text-sm"></ul>
-            </div>
-
-            <div class="card card-pad">
-                <h2 class="section-title mb-3">Operacje na punktach</h2>
-                <div class="flex flex-col sm:flex-row gap-2">
-                    <button onclick="recalc()" class="btn-primary">🔄 Przelicz punkty sezonu</button>
-                    <button onclick="fixDuplicates()" class="btn-ghost">🔧 Napraw duplikaty i jokery</button>
-                </div>
-            </div>
-
-            <div class="card card-pad">
-                <h2 class="section-title mb-1">Kopia zapasowa</h2>
-                <p class="text-sm text-muted mb-3">Rób kopię przed większą operacją. Plik zawiera linki graczy — trzymaj go prywatnie.</p>
-                <div class="flex flex-col gap-2">
-                    <button onclick="downloadBackup()" class="btn-ok">💾 Pobierz kopię (JSON)</button>
-                    <label class="label mt-2" for="restore-file">Przywróć z pliku</label>
-                    <input type="file" id="restore-file" accept="application/json" class="input py-2">
-                    <button onclick="restoreBackup()" class="btn-danger">♻️ Przywróć (scalanie)</button>
-                </div>
-            </div>
-
-            <div class="card card-pad border-bad/40">
-                <h2 class="section-title mb-3 text-bad">Strefa ryzyka</h2>
-                <div class="flex flex-wrap gap-2 items-end">
-                    <div><label class="label" for="clean-from">Usuń kolejki od numeru</label><input type="number" id="clean-from" class="input" value="15"></div>
-                    <button onclick="cleanRounds()" class="btn-danger">🧹 Usuń kolejki i ich typy</button>
-                </div>
-            </div>
-        </div>
-        </main>
+        <!-- ===== DOLNA NAWIGACJA (telefon) ===== -->
+        <nav class="tabbar grid-cols-5 md:grid lg:hidden" aria-label="Sekcje panelu" id="tab-nav"></nav>
     </div>
 
     <script src="/js/shared.js?v=__V__"></script>

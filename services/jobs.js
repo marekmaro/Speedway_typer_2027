@@ -40,7 +40,7 @@ function scrapeJob(opts = {}) {
             await push.notifyAdmins({
                 title: '📥 Wyniki czekają na zatwierdzenie',
                 body: `${(out.createdList || []).slice(0, 3).join(' · ')}${pending > 3 ? ` (+${pending - 3})` : ''}`,
-                url: '/admin#drafts',
+                url: '/admin#pulpit',
                 tag: 'drafts',
                 urgency: 'high'
             });
@@ -48,7 +48,7 @@ function scrapeJob(opts = {}) {
             // Wszystkie źródła padły - pewnie zmienił się układ strony. Raz dziennie wystarczy.
             const day = new Date().toISOString().slice(0, 10);
             if (await push.onceOnly(`scrape-broken:${day}`)) {
-                await push.notifyAdmins({ title: '⚠️ Scraper nie działa', body: out.sourceErrors[0], url: '/admin#drafts', tag: 'scraper' });
+                await push.notifyAdmins({ title: '⚠️ Scraper nie działa', body: out.sourceErrors[0], url: '/admin#sezon/auto', tag: 'scraper' });
             }
         }
         return out;

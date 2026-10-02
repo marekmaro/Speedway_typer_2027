@@ -25,6 +25,15 @@
             "runtimeExecutable": "npm",
             "runtimeArgs": ["test"],
             "console": "integratedTerminal"
+        },
+        {
+            // wymaga: npm i --no-save playwright && npx playwright install chromium
+            "name": "Testy w przeglądarce (E2E)",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": ["run", "test:e2e"],
+            "console": "integratedTerminal"
         }
     ]
 }
