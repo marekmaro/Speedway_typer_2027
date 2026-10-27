@@ -179,6 +179,89 @@ test('ranking wszech czasów sumuje sezony i liczy tytuły', () => {
     assert.deepStrictEqual(at2[0].titles, []);
 });
 
+console.log('\nZgodność z regulaminem:');
+test('regulamin: przykład punktacji przy wyniku 46:44 (5 / 3 / 2 / 0)', () => {
+    assert.deepStrictEqual([pts(46, 44, 46, 44), pts(47, 45, 46, 44), pts(50, 40, 46, 44), pts(44, 46, 46, 44)], [5, 3, 2, 0]);
+});
+test('regulamin: remis punktowy rozstrzygają dokładne trafienia, potem różnice; pełny remis = ex aequo', () => {
+    const ms = [
+        { _id: 'r1', round: 1, homeTeam: 'A', awayTeam: 'B', homeScore: 46, awayScore: 44, matchDate: '2027-04-01' },
+        { _id: 'r2', round: 1, homeTeam: 'C', awayTeam: 'D', homeScore: 50, awayScore: 40, matchDate: '2027-04-01' }
+    ];
+    const pr = [
+        { nickname: 'Ala', matchId: 'r1', homePred: 46, awayPred: 44, pointsEarned: 5 }, // 5 = dokładny
+        { nickname: 'Bob', matchId: 'r1', homePred: 47, awayPred: 45, pointsEarned: 3 }, // 3 + 2
+        { nickname: 'Bob', matchId: 'r2', homePred: 48, awayPred: 42, pointsEarned: 2 },
+        { nickname: 'Cyk', matchId: 'r1', homePred: 47, awayPred: 45, pointsEarned: 3 }, // identycznie jak Bob
+        { nickname: 'Cyk', matchId: 'r2', homePred: 48, awayPred: 42, pointsEarned: 2 },
+        { nickname: 'Dex', matchId: 'r1', homePred: 50, awayPred: 40, pointsEarned: 2 }, // 2 + 3
+        { nickname: 'Dex', matchId: 'r2', homePred: 51, awayPred: 41, pointsEarned: 3 }
+    ];
+    const st = S.buildPlayerStats({ players: [], predictions: pr, matches: ms, longTerms: [] });
+    const pos = Object.fromEntries(st.map(x => [x.nickname, x.position]));
+    assert.deepStrictEqual(pos, { Ala: 1, Bob: 2, Cyk: 2, Dex: 2 }, 'Bob/Cyk/Dex: 5 pkt, 0 dokładnych, 1 różnica');
+    const prog = S.buildRoundProgress(st, ms);
+    assert.strictEqual(prog.series.Ala[0].position, 1, 'te same kryteria po kolejce');
+    assert.strictEqual(prog.series.Bob[0].position, 2);
+});
+test('regulamin: zwycięzca kolejki przy remisie - kilku zwycięzców', () => {
+    const ms = [{ _id: 'w1', round: 3, homeTeam: 'A', awayTeam: 'B', homeScore: 46, awayScore: 44, matchDate: '2027-04-01' }];
+    const pr = [{ nickname: 'Ala', matchId: 'w1', homePred: 46, awayPred: 44, pointsEarned: 5 }, { nickname: 'Bob', matchId: 'w1', homePred: 46, awayPred: 44, pointsEarned: 5 }];
+    const st = S.buildPlayerStats({ players: [], predictions: pr, matches: ms, longTerms: [] });
+    assert.deepStrictEqual(S.buildRoundWinners(st, ms)[0].winners.sort(), ['Ala', 'Bob']);
+});
+test('regulamin: puchar - remis rozstrzygają dokładne trafienia, potem wyżej rozstawiony; wynik po całej kolejce', () => {
+    const ms = [
+        { _id: 'c1', round: 5, homeTeam: 'A', awayTeam: 'B', homeScore: 46, awayScore: 44, matchDate: '2027-04-01' },
+        { _id: 'c2', round: 5, homeTeam: 'C', awayTeam: 'D', homeScore: null, awayScore: null, matchDate: '2027-04-02' }
+    ];
+    const pr = [
+        { nickname: 'Ala', matchId: 'c1', homePred: 46, awayPred: 44, pointsEarned: 5 },
+        { nickname: 'Bob', matchId: 'c1', homePred: 50, awayPred: 40, pointsEarned: 2 }
+    ];
+    const cup = [{ stage: 'Półfinał', roundNumber: 5, player1: 'Bob', player2: 'Ala', autoScore: true }];
+    let r = S.buildCupResults(cup, pr, ms)[0];
+    assert.strictEqual(r.finished, false, 'kolejka niedokończona');
+    assert.strictEqual(r.live, true);
+    assert.strictEqual(r.winner, null);
+    ms[1].homeScore = 45; ms[1].awayScore = 45;
+    // Bob: 2 (zwycięzca) + 3 (remis 44:44 = dobra różnica) = 5; Ala: 5 (dokładny) i brak typu na c2 = 5
+    pr.push({ nickname: 'Bob', matchId: 'c2', homePred: 44, awayPred: 44, pointsEarned: 3 });
+    r = S.buildCupResults(cup, pr, ms)[0];
+    assert.deepStrictEqual([r.score1, r.score2, r.exact1, r.exact2], [5, 5, 0, 1]);
+    assert.deepStrictEqual([r.winner, r.decidedBy, r.finished, r.live], ['Ala', 'exact', true, false], 'Ala ma dokładny wynik');
+    // Pełny remis: obaj 6 pkt i zero dokładnych -> wygrywa wyżej rozstawiony (gracz 1 = Bob)
+    Object.assign(pr[0], { homePred: 47, awayPred: 45, pointsEarned: 3 });
+    Object.assign(pr[1], { homePred: 47, awayPred: 45, pointsEarned: 3 });
+    pr.push({ nickname: 'Ala', matchId: 'c2', homePred: 44, awayPred: 44, pointsEarned: 3 });
+    r = S.buildCupResults(cup, pr, ms)[0];
+    assert.deepStrictEqual([r.score1, r.score2, r.winner, r.decidedBy], [6, 6, 'Bob', 'seed'], 'pełny remis - wyżej rozstawiony (gracz 1)');
+});
+
+test('finał sezonu: mistrz tylko po zamknięciu, ex aequo = kilku mistrzów, medal wymaga punktów', () => {
+    const st = [
+        { nickname: 'Ala', position: 1, points: 20, perfects: 2, diffs: 1, settled: 5 },
+        { nickname: 'Bob', position: 1, points: 20, perfects: 2, diffs: 1, settled: 5 },
+        { nickname: 'Cyk', position: 3, points: 0, perfects: 0, diffs: 0, settled: 5 },
+        { nickname: 'Dex', position: 4, points: 0, perfects: 0, diffs: 0, settled: 0 }
+    ];
+    assert.strictEqual(S.buildFinale({ year: 2027, isFinished: false }, st), null, 'sezon trwa');
+    const f = S.buildFinale({ year: 2027, isFinished: true, winnerSurprise: { prize: 'Kask', revealedBy: ['Bob', 'Zed'] } }, st);
+    assert.deepStrictEqual(f.champions, ['Ala', 'Bob']);
+    assert.deepStrictEqual(f.podium.map(p => p.nickname), ['Ala', 'Bob'], 'Cyk z zerem bez medalu');
+    assert.deepStrictEqual([f.hasSurprise, f.revealed], [true, ['Bob']]);
+    assert.strictEqual(S.buildFinale({ isFinished: true }, st.map(x => ({ ...x, points: 0 }))), null, 'nikt nie zdobył punktu');
+});
+test('zwycięzca kolejki: "complete" dopiero, gdy cała kolejka rozliczona (anulowany mecz się nie liczy)', () => {
+    const ms = [
+        { _id: 'r1', round: 1, homeScore: 46, awayScore: 44 }, { _id: 'r2', round: 1, homeScore: null, voidPredictions: true },
+        { _id: 'r3', round: 2, homeScore: 50, awayScore: 40 }, { _id: 'r4', round: 2, homeScore: null }
+    ];
+    const st = [{ nickname: 'Ala', byRound: { 1: 5, 2: 3 } }, { nickname: 'Bob', byRound: { 1: 2, 2: 3 } }];
+    const rw = S.buildRoundWinners(st, ms);
+    assert.deepStrictEqual(rw.map(r => [r.round, r.winners, r.complete]), [[1, ['Ala'], true], [2, ['Ala', 'Bob'], false]]);
+});
+
 console.log('\nScraper (parsowanie bez sieci):');
 const T8 = ['Orlen Oil Motor Lublin', 'Betard Sparta Wrocław', 'PRES Grupa Deweloperska Toruń', 'Gezet Stal Gorzów',
     'Stal Rzeszów', 'Fogo Unia Leszno', 'Unia Tarnów', 'Bayersystem GKM Grudziądz'];

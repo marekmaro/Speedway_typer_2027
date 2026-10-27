@@ -36,7 +36,13 @@ const seasonSchema = new mongoose.Schema({
     // Scraper: dodatkowe nazwy drużyn używane przez portale (np. "Motor" dla "Orlen Oil Motor Lublin")
     teamAliases: { type: Map, of: [String], default: {} },
     // Scraper: adresy stron z wynikami dla tego sezonu (puste = SCRAPER_URLS z .env)
-    scraperUrls: { type: [String], default: [] }
+    scraperUrls: { type: [String], default: [] },
+    // Niespodzianka dla Mistrza Typera. Widzi ją tylko zwycięzca (przez swój link) po zamknięciu sezonu.
+    winnerSurprise: {
+        prize: { type: String, default: '' },        // np. "kask z autografem" - zakryty do zdrapania
+        message: { type: String, default: '' },      // osobista wiadomość od organizatora
+        revealedBy: { type: [String], default: [] }  // kto już odkrył niespodziankę
+    }
 }, { timestamps: true });
 
 const matchSchema = new mongoose.Schema({

@@ -871,6 +871,184 @@ const fresh = id => db.Match.findById(String(id));
         assert.strictEqual(lockMinutesOf(legacy), 24 * 60, 'stara blokada zostaje');
     });
 
+    group('J. Zgodność z regulaminem (API)');
+
+    await test('J1 typy sezonowe: trzy różne drużyny - powtórzony wybór pominięty z ostrzeżeniem', async () => {
+        await db.Season.create({ year: 2035, label: 'Test 2035', isActive: false, lockMinutes: 1, teams: TEAMS, stageNames: {}, scoring: {} });
+        await db.Match.create({ season: 2035, round: 1, homeTeam: TEAMS[0], awayTeam: TEAMS[1], matchDate: inMin(60 * 24 * 20) });
+        const r = await submit(TOK.Bob, [], { season: 2035, longTerm: { champion: TEAMS[0], bronze: TEAMS[0], relegation: TEAMS[0] } });
+        assert.ok(r.body.warnings.some(w => /brązowy/.test(w)) && r.body.warnings.some(w => /spadkowicz/.test(w)), JSON.stringify(r.body.warnings));
+        const lt = await db.LongTerm.findOne({ season: 2035, nickname: 'Bob' });
+        assert.deepStrictEqual([lt.champion, lt.bronze, lt.relegation], [TEAMS[0], '', '']);
+        assert.strictEqual((await admin('/longterm', { season: 2035, nickname: 'Bob', champion: TEAMS[1], bronze: TEAMS[1] })).status, 400);
+    });
+
+    await test('J2 ranking w API: równe punkty rozstrzygają dokładne trafienia (różne miejsca, nie ex aequo)', async () => {
+        await db.Season.create({ year: 2036, label: 'Test 2036', isActive: false, lockMinutes: 1, teams: TEAMS, stageNames: {}, scoring: {} });
+        const a = await db.Match.create({ season: 2036, round: 1, homeTeam: TEAMS[0], awayTeam: TEAMS[1], matchDate: inMin(-500), homeScore: 46, awayScore: 44 });
+        const b = await db.Match.create({ season: 2036, round: 1, homeTeam: TEAMS[2], awayTeam: TEAMS[3], matchDate: inMin(-500), homeScore: 50, awayScore: 40 });
+        await db.Prediction.create({ season: 2036, nickname: 'Ala', matchId: String(a._id), homePred: 46, awayPred: 44 });
+        await db.Prediction.create({ season: 2036, nickname: 'Bob', matchId: String(a._id), homePred: 47, awayPred: 45 });
+        await db.Prediction.create({ season: 2036, nickname: 'Bob', matchId: String(b._id), homePred: 48, awayPred: 42 });
+        await admin('/recalculate', { season: 2036 });
+        cache.invalidate();
+        const rank = (await get('/api/public/data?season=2036')).body.ranking;
+        const ala = rank.find(r => r.nickname === 'Ala'), bob = rank.find(r => r.nickname === 'Bob');
+        assert.strictEqual(ala.points, bob.points, 'po 5 pkt');
+        assert.deepStrictEqual([ala.position, bob.position], [1, 2]);
+    });
+
+    await test('J3 puchar w API: wynik liczony na bieżąco - korekta wyniku meczu zmienia drabinkę bez "Przelicz"', async () => {
+        const ms = (await db.Match.find({ season: 2036 }));
+        await db.CupMatch.create({ season: 2036, stage: 'Finał', roundNumber: 1, player1: 'Bob', player2: 'Ala', autoScore: true, score1: null, score2: null });
+        cache.invalidate();
+        let cup = (await get('/api/public/data?season=2036')).body.cupMatches[0];
+        assert.deepStrictEqual([cup.score1, cup.score2, cup.finished, cup.winner, cup.decidedBy], [5, 5, true, 'Ala', 'exact']);
+        await admin('/result', { matchId: String(ms[1]._id), homeScore: 48, awayScore: 42 }); // typ Boba 48:42 = dokładny
+        cup = (await get('/api/public/data?season=2036')).body.cupMatches[0];
+        assert.deepStrictEqual([cup.score1, cup.score2, cup.winner], [8, 5, 'Bob'], 'Bob: 3 + 5 po korekcie');
+    });
+
+    await test('J4 regulamin dostaje czas przypomnienia i blokady z serwera', async () => {
+        const d = (await get('/api/public/data')).body.season;
+        assert.strictEqual(d.reminderMinutes, 120);
+        assert.strictEqual(typeof d.lockMinutes, 'number');
+    });
+
+    /* ============================================================ */
+    group('K. Koniec sezonu: Mistrz Typera i niespodzianka');
+    const PRIZE = 'Kask z autografem mistrza świata';
+    const NOTE = 'Gratulacje! Odbiór na najbliższym meczu w Lublinie.';
+    const pd = (tok, year) => get(`/api/public/player-data?token=${tok}&season=${year}`);
+    let k3;
+
+    await test('K1 sezon trwa: brak mistrza, zwycięzca kolejki dopiero po rozliczeniu całej kolejki', async () => {
+        await db.Season.create({ year: 2037, label: 'Finał 2037', isActive: false, lockMinutes: 1, teams: TEAMS, stageNames: {}, scoring: {} });
+        const k1 = await db.Match.create({ season: 2037, round: 1, homeTeam: TEAMS[0], awayTeam: TEAMS[1], matchDate: inMin(-3000), homeScore: 46, awayScore: 44 });
+        const k2 = await db.Match.create({ season: 2037, round: 1, homeTeam: TEAMS[2], awayTeam: TEAMS[3], matchDate: inMin(-3000), homeScore: 50, awayScore: 40 });
+        k3 = await db.Match.create({ season: 2037, round: 2, homeTeam: TEAMS[1], awayTeam: TEAMS[0], matchDate: inMin(-600) });
+        const typ = (nick, m, h, a) => db.Prediction.create({ season: 2037, nickname: nick, matchId: String(m._id), homePred: h, awayPred: a });
+        await typ('Ala', k1, 46, 44); await typ('Ala', k2, 49, 41); await typ('Ala', k3, 46, 44);   // 5 + 2, potem +5
+        await typ('Bob', k1, 47, 45); await typ('Bob', k2, 50, 40);                               // 3 + 5 = 8
+        await typ('Cyk', k1, 50, 40); await typ('Cyk', k2, 45, 45);                               // 2 + 0
+        await admin('/recalculate', { season: 2037 });
+        cache.invalidate();
+        assert.strictEqual((await get('/api/public/data?season=2037')).body.finale, null);
+        const bob = (await pd(TOK.Bob, 2037)).body;
+        assert.strictEqual(bob.champion, null);
+        assert.deepStrictEqual(bob.lastRoundWin, { round: 1, points: 8, shared: false }, 'Bob wygrał rozliczoną kolejkę 1');
+        const ala = (await pd(TOK.Ala, 2037)).body;
+        assert.strictEqual(ala.lastRoundWin, null, 'kolejka 2 bez wyniku - nikt jej jeszcze nie wygrał');
+        const rw = (await get('/api/public/data?season=2037')).body.roundWinners;
+        assert.deepStrictEqual(rw.map(r => [r.round, r.complete]), [[1, true]]);
+        assert.strictEqual((await post('/api/public/champion/reveal', { token: TOK.Ala, season: 2037 })).status, 403);
+    });
+
+    await test('K2 admin ustawia niespodziankę - treść nie wycieka do strony publicznej ani do innych graczy', async () => {
+        await admin('/result', { matchId: String(k3._id), homeScore: 46, awayScore: 44 });
+        const r = await admin('/season/settings', { season: 2037, winnerSurprise: { prize: PRIZE, message: NOTE } });
+        assert.strictEqual(r.status, 200);
+        const info = (await adminGet('/seasons')).body.find(x => x.year === 2037);
+        assert.deepStrictEqual(info.winnerSurprise, { prize: PRIZE, message: NOTE, revealedBy: [] });
+        const pub = (await get('/api/public/data?season=2037')).text;
+        assert.ok(!pub.includes(PRIZE) && !pub.includes(NOTE), 'nagroda tajna na stronie publicznej');
+        assert.ok(!(await pd(TOK.Ala, 2037)).text.includes(PRIZE), 'przed zamknięciem sezonu nawet lider jej nie widzi');
+        assert.deepStrictEqual((await pd(TOK.Ala, 2037)).body.lastRoundWin, { round: 2, points: 5, shared: false });
+    });
+
+    await test('K3 zamknięcie sezonu: walidacja wyników, mistrz dostaje push z niespodzianką, reszta - o końcu sezonu (raz)', async () => {
+        assert.strictEqual((await admin('/season/finish', { season: 2037, champion: TEAMS[0], bronze: TEAMS[0] })).status, 400, 'ta sama drużyna dwa razy');
+        sent.length = 0;
+        const r = await admin('/season/finish', { season: 2037, champion: TEAMS[0], bronze: TEAMS[2], relegation: TEAMS[3], markFinished: true });
+        assert.strictEqual(r.status, 200);
+        assert.ok(/Mistrz Typera: Ala/.test(r.body.message), r.body.message);
+        const toAla = sent.filter(x => x.endpoint === 'https://push.test/Ala');
+        const toBob = sent.filter(x => x.endpoint === 'https://push.test/Bob');
+        assert.ok(toAla.length === 1 && /Mistrzem/.test(toAla[0].body.title) && toAla[0].body.url.includes(TOK.Ala), JSON.stringify(toAla));
+        assert.ok(toBob.length === 1 && /Koniec sezonu/.test(toBob[0].body.title) && !toBob[0].body.url.includes('id='), JSON.stringify(toBob));
+        sent.length = 0;
+        await admin('/season/finish', { season: 2037, champion: TEAMS[0], bronze: TEAMS[2], relegation: TEAMS[3], markFinished: true });
+        assert.strictEqual(sent.length, 0, 'ponowne zamknięcie nie powtarza powiadomień');
+    });
+
+    await test('K4 po zamknięciu: podium publicznie, niespodzianka tylko w panelu mistrza, medale dla podium', async () => {
+        cache.invalidate();
+        const data = (await get('/api/public/data?season=2037'));
+        assert.deepStrictEqual(data.body.finale.champions, ['Ala']);
+        assert.deepStrictEqual(data.body.finale.podium.map(p => [p.nickname, p.position]), [['Ala', 1], ['Bob', 2], ['Cyk', 3]]);
+        assert.ok(data.body.finale.hasSurprise && !data.text.includes(PRIZE));
+        const ala = (await pd(TOK.Ala, 2037)).body;
+        assert.deepStrictEqual([ala.champion.prize, ala.champion.message, ala.champion.revealed, ala.medal], [PRIZE, NOTE, false, 1]);
+        const bob = await pd(TOK.Bob, 2037);
+        assert.ok(bob.body.champion === null && bob.body.medal === 2 && !bob.text.includes(PRIZE));
+        const dex = (await pd(TOK.Dex, 2037)).body;
+        assert.strictEqual(dex.medal, null, 'Dex bez typów - poza podium');
+    });
+
+    await test('K5 odkrycie niespodzianki: tylko mistrz, raz zapisane, widoczne dla admina', async () => {
+        assert.strictEqual((await post('/api/public/champion/reveal', { token: TOK.Bob, season: 2037 })).status, 403);
+        assert.strictEqual((await post('/api/public/champion/reveal', { token: 'zly-token', season: 2037 })).status, 403);
+        const r = await post('/api/public/champion/reveal', { token: TOK.Ala, season: 2037 });
+        assert.deepStrictEqual([r.status, r.body.prize, r.body.text], [200, PRIZE, NOTE]);
+        await post('/api/public/champion/reveal', { token: TOK.Ala, season: 2037 });
+        const info = (await adminGet('/seasons')).body.find(x => x.year === 2037);
+        assert.deepStrictEqual(info.winnerSurprise.revealedBy, ['Ala']);
+        cache.invalidate();
+        assert.deepStrictEqual((await get('/api/public/data?season=2037')).body.finale.revealed, ['Ala']);
+        assert.strictEqual((await pd(TOK.Ala, 2037)).body.champion.revealed, true);
+        // zmiana treści nagrody nie kasuje informacji, że mistrz już ją odkrył
+        await admin('/season/settings', { season: 2037, winnerSurprise: { prize: PRIZE + ' i bilety' } });
+        const again = (await adminGet('/seasons')).body.find(x => x.year === 2037).winnerSurprise;
+        assert.deepStrictEqual([again.prize, again.message, again.revealedBy], [PRIZE + ' i bilety', NOTE, ['Ala']]);
+    });
+
+    await test('K6 pełny remis na szczycie: dwóch mistrzów ex aequo, obaj mogą odkryć niespodziankę', async () => {
+        await db.Season.create({ year: 2038, label: 'Remis 2038', isActive: false, lockMinutes: 1, teams: TEAMS, stageNames: {}, scoring: {} });
+        const m = await db.Match.create({ season: 2038, round: 1, homeTeam: TEAMS[0], awayTeam: TEAMS[1], matchDate: inMin(-900), homeScore: 46, awayScore: 44 });
+        for (const n of ['Ala', 'Bob']) await db.Prediction.create({ season: 2038, nickname: n, matchId: String(m._id), homePred: 46, awayPred: 44 });
+        await db.Prediction.create({ season: 2038, nickname: 'Cyk', matchId: String(m._id), homePred: 40, awayPred: 50 });
+        await admin('/recalculate', { season: 2038 });
+        await admin('/season/finish', { season: 2038, champion: TEAMS[1], markFinished: true, prize: 'Pizza', message: '' });
+        cache.invalidate();
+        const fin = (await get('/api/public/data?season=2038')).body.finale;
+        assert.deepStrictEqual(fin.champions.sort(), ['Ala', 'Bob']);
+        const bob = (await pd(TOK.Bob, 2038)).body;
+        assert.deepStrictEqual([bob.champion.prize, bob.champion.coChampions], ['Pizza', ['Ala']]);
+        assert.strictEqual((await post('/api/public/champion/reveal', { token: TOK.Bob, season: 2038 })).status, 200);
+        assert.strictEqual((await pd(TOK.Cyk, 2038)).body.medal, null, 'Cyk jest 3., ale z zerem punktów - bez medalu');
+    });
+
+    await test('K7 ponowne otwarcie sezonu chowa mistrza; równe punkty z liderem to nie "ex aequo", gdy rozstrzygają dokładne', async () => {
+        await admin('/season/reopen', { season: 2038 });
+        cache.invalidate();
+        assert.strictEqual((await get('/api/public/data?season=2038')).body.finale, null);
+        assert.strictEqual((await pd(TOK.Ala, 2038)).body.champion, null);
+        assert.strictEqual((await post('/api/public/champion/reveal', { token: TOK.Ala, season: 2038 })).status, 403);
+        await db.Season.create({ year: 2039, label: 'Pościg 2039', isActive: false, lockMinutes: 1, teams: TEAMS, stageNames: {}, scoring: {} });
+        const a = await db.Match.create({ season: 2039, round: 1, homeTeam: TEAMS[0], awayTeam: TEAMS[1], matchDate: inMin(-900), homeScore: 46, awayScore: 44 });
+        const b = await db.Match.create({ season: 2039, round: 1, homeTeam: TEAMS[2], awayTeam: TEAMS[3], matchDate: inMin(-900), homeScore: 50, awayScore: 40 });
+        await db.Prediction.create({ season: 2039, nickname: 'Ala', matchId: String(a._id), homePred: 46, awayPred: 44 });   // 5 (dokładny)
+        for (const n of ['Bob', 'Cyk']) {                                                                                     // 3 + 2, bez dokładnych
+            await db.Prediction.create({ season: 2039, nickname: n, matchId: String(a._id), homePred: 47, awayPred: 45 });
+            await db.Prediction.create({ season: 2039, nickname: n, matchId: String(b._id), homePred: 47, awayPred: 43 });
+        }
+        await admin('/recalculate', { season: 2039 });
+        const bob = (await pd(TOK.Bob, 2039)).body.ranking, cyk = (await pd(TOK.Cyk, 2039)).body.ranking;
+        assert.deepStrictEqual([bob.points, bob.position, bob.chasing.nickname, bob.chasing.gap, bob.chasing.samePosition], [5, 2, 'Ala', 0, false]);
+        assert.deepStrictEqual([cyk.position, cyk.chasing.nickname, cyk.chasing.samePosition], [2, 'Bob', true], 'Bob i Cyk: pełny remis = ex aequo');
+    });
+
+    await test('K8 galeria mistrzów: ranking wszech czasów zna mistrzów zamkniętych sezonów i ich punkty', async () => {
+        cache.invalidate();
+        const all = (await get('/api/public/alltime')).body;
+        const s37 = all.seasons.find(s => s.year === 2037);
+        assert.deepStrictEqual([s37.winner, s37.winnerPoints], [['Ala'], 12]);
+        const ala = all.ranking.find(r => r.nickname === 'Ala');
+        assert.ok(ala.titles.includes(2037), JSON.stringify(ala.titles));
+        const prof = (await get('/api/public/profile?nickname=Ala&season=2037')).body;
+        assert.deepStrictEqual([prof.medal, prof.roundWins], [1, [2]]);
+    });
+
     server.close();
     console.log(`\n${passed} scenariuszy przeszło${failed ? `, ${failed} NIE przeszło: ${failures.join(' | ')}` : ''}.\n`);
     process.exit(process.exitCode || 0);

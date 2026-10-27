@@ -6,7 +6,7 @@ const S = require('../services/scoring');
 const push = require('../services/push');
 const cache = require('../services/cache');
 const { rateLimit } = require('../middleware/auth');
-const { MAX_SCORE } = require('../config');
+const { MAX_SCORE, REMINDER_MINUTES } = require('../config');
 
 const wrap = fn => (req, res) => fn(req, res).catch(err => {
     console.error('❌ publicRoutes:', err.message);
@@ -25,6 +25,7 @@ function seasonPayload(season) {
         isActive: season.isActive,
         isFinished: season.isFinished,
         lockMinutes: S.lockMinutesOf(season),
+        reminderMinutes: REMINDER_MINUTES,
         scoring: S.scoringOf(season),
         teams: season.teams || [],
         stageNames: S.stageNamesOf(season),
@@ -114,8 +115,9 @@ router.get('/data', rateLimit({ key: 'data', max: 120 }), wrap(async (req, res) 
                 ? longTerms.map(lt => ({ nickname: lt.nickname, hidden: true }))
                 : longTerms.map(lt => ({ nickname: lt.nickname, champion: lt.champion, bronze: lt.bronze, relegation: lt.relegation, pointsEarned: lt.pointsEarned, hidden: false })),
             longTermOpen,
-            cupMatches,
+            cupMatches: S.buildCupResults(cupMatches, predictions, matches),
             standings,
+            finale: S.buildFinale(season, stats),
             ranking: stats.map(s => ({
                 nickname: s.nickname, position: s.position, points: s.points,
                 matchPoints: s.matchPoints, longTermPoints: s.longTermPoints,
@@ -152,6 +154,22 @@ router.get('/player-data', rateLimit({ key: 'pd', max: 120 }), wrap(async (req, 
     const me = stats[meIdx] || { points: 0, perfects: 0, position: null, byRound: {}, form: [] };
     const chasing = meIdx > 0 ? stats[meIdx - 1] : null;
     const chased = meIdx >= 0 && meIdx < stats.length - 1 ? stats[meIdx + 1] : null;
+    // przy równych punktach ex aequo jest tylko wtedy, gdy rozstrzygające kryteria też są równe
+    const rel = other => ({ nickname: other.nickname, gap: Math.abs(other.points - me.points), samePosition: other.position === me.position });
+
+    const finale = S.buildFinale(season, stats);
+    const roundWinners = S.buildRoundWinners(stats, matches);
+    const lastDone = roundWinners.filter(r => r.complete).pop();
+    let champion = null;
+    if (finale && finale.champions.includes(player.nickname)) {
+        const ws = season.winnerSurprise || {};
+        champion = {
+            year, label: season.label || `Sezon ${year}`,
+            prize: ws.prize || '', message: ws.message || '',
+            revealed: (ws.revealedBy || []).includes(player.nickname),
+            coChampions: finale.champions.filter(n => n !== player.nickname)
+        };
+    }
 
     const ltLock = firstMatchLock(matches, lockMinutes);
     const mySeasons = await Season.find({ year: { $in: player.seasons.length ? player.seasons : [year] } })
@@ -181,9 +199,17 @@ router.get('/player-data', rateLimit({ key: 'pd', max: 120 }), wrap(async (req, 
             bestRound: me.bestRound || { round: null, points: 0 },
             form: me.form || [],
             leader: stats[0] ? { nickname: stats[0].nickname, points: stats[0].points } : null,
-            chasing: chasing ? { nickname: chasing.nickname, gap: chasing.points - me.points } : null,
-            chased: chased ? { nickname: chased.nickname, gap: me.points - chased.points } : null
+            chasing: chasing ? rel(chasing) : null,
+            chased: chased ? rel(chased) : null,
+            diffs: me.diffs || 0,
+            roundWins: roundWinners.filter(r => r.winners.includes(player.nickname)).map(r => r.round)
         },
+        // ostatnia ROZLICZONA w całości kolejka, jeśli gracz ją wygrał (baner "Wygrałeś kolejkę")
+        lastRoundWin: lastDone && lastDone.winners.includes(player.nickname)
+            ? { round: lastDone.round, points: lastDone.points, shared: lastDone.winners.length > 1 } : null,
+        finale,
+        medal: finale && me.position && me.position <= 3 && finale.podium.some(p => p.nickname === player.nickname) ? me.position : null,
+        champion,
         push: { enabled: push.isConfigured() },
         serverTime: new Date().toISOString()
     });
@@ -214,11 +240,14 @@ router.post('/submit-all', rateLimit({ key: 'submit', max: 90 }), wrap(async (re
     if (longTerm && ltOpen) {
         const allowed = new Set(season.teams && season.teams.length ? season.teams : S.uniqueTeams(matches));
         const pick = v => (allowed.has(v) ? v : '');
-        await LongTerm.findOneAndUpdate(
-            { season: year, nickname: player.nickname },
-            { champion: pick(longTerm.champion), bronze: pick(longTerm.bronze), relegation: pick(longTerm.relegation) },
-            { upsert: true }
-        );
+        const lt = { champion: pick(longTerm.champion), bronze: pick(longTerm.bronze), relegation: pick(longTerm.relegation) };
+        // Regulamin: trzy RÓŻNE drużyny (mistrz nie może być jednocześnie brązowym medalistą ani spadkowiczem)
+        if (lt.bronze && lt.bronze === lt.champion) { lt.bronze = ''; result.warnings.push('Typy sezonowe: brązowy medalista musi być inną drużyną niż mistrz.'); }
+        if (lt.relegation && (lt.relegation === lt.champion || lt.relegation === lt.bronze)) {
+            lt.relegation = '';
+            result.warnings.push('Typy sezonowe: spadkowicz nie może być medalistą.');
+        }
+        await LongTerm.findOneAndUpdate({ season: year, nickname: player.nickname }, lt, { upsert: true });
         result.longTerm = true;
     } else if (longTerm && !ltOpen) {
         result.warnings.push('Typy sezonowe są już zablokowane.');
@@ -319,6 +348,28 @@ router.post('/submit-all', rateLimit({ key: 'submit', max: 90 }), wrap(async (re
     res.json({ message: 'Zapisano!', ...result });
 }));
 
+/**
+ * Mistrz Typera odkrywa niespodziankę (zdrapka w panelu). Tylko zwycięzca zamkniętego sezonu, przez swój link.
+ * Zapis "kto odkrył" widzi admin - wie, że nagroda dotarła.
+ */
+router.post('/champion/reveal', rateLimit({ key: 'reveal', max: 20 }), wrap(async (req, res) => {
+    const { token } = req.body || {};
+    const player = token ? await Player.findOne({ token }) : null;
+    if (!player) return res.status(403).json({ error: 'Brak uprawnień.' });
+    const season = await resolveSeason(req);
+    if (!season.isFinished) return res.status(403).json({ error: 'Sezon jeszcze trwa — mistrza poznamy po jego zamknięciu.' });
+    const { stats } = await loadSeasonCore(season.year);
+    const finale = S.buildFinale(season, stats);
+    if (!finale || !finale.champions.includes(player.nickname)) return res.status(403).json({ error: 'Ta niespodzianka czeka na Mistrza Typera.' });
+    const ws = season.winnerSurprise || {};
+    const revealedBy = [...new Set([...(ws.revealedBy || []), player.nickname])];
+    if (revealedBy.length !== (ws.revealedBy || []).length) {
+        season.winnerSurprise = { prize: ws.prize || '', message: ws.message || '', revealedBy };
+        await season.save();
+    }
+    res.json({ message: 'Gratulacje, Mistrzu!', prize: ws.prize || '', text: ws.message || '' });
+}));
+
 /* ================= STATYSTYKI ================= */
 
 /**
@@ -362,9 +413,12 @@ router.get('/profile', rateLimit({ key: 'stats', max: 120 }), wrap(async (req, r
             })
             .sort((a, b) => new Date(b.matchDate) - new Date(a.matchDate));
 
+        const finale = S.buildFinale(season, stats);
         return {
             season: seasonPayload(season),
             nickname,
+            roundWins: S.buildRoundWinners(stats, matches).filter(r => r.winners.includes(nickname)).map(r => r.round),
+            medal: finale && finale.podium.some(p => p.nickname === nickname) ? me.position : null,
             summary: {
                 position: me.position, totalPlayers: stats.length, points: me.points, matchPoints: me.matchPoints,
                 longTermPoints: me.longTermPoints, perfects: me.perfects, diffs: me.diffs, winners: me.winners,
@@ -410,7 +464,8 @@ router.get('/alltime', rateLimit({ key: 'stats', max: 60 }), wrap(async (req, re
         return {
             seasons: perSeason.map(s => ({
                 year: s.year, label: s.label || `Sezon ${s.year}`, isFinished: s.isFinished,
-                winner: s.isFinished && s.stats[0] && s.stats[0].settled ? s.stats.filter(x => x.position === 1).map(x => x.nickname) : []
+                winner: (S.buildFinale({ year: s.year, isFinished: s.isFinished }, s.stats) || { champions: [] }).champions,
+                winnerPoints: s.stats[0] ? s.stats[0].points : 0
             })),
             ranking: S.buildAllTime(perSeason)
         };

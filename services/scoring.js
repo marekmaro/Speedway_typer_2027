@@ -176,12 +176,24 @@ function outcomeFor(pred, match) {
     return pred.outcome || outcomeOf(pred.homePred, pred.awayPred, match.homeScore, match.awayScore);
 }
 
-/** Pozycje z uwzględnieniem remisów (ex aequo). Lista musi być posortowana. */
-function assignPositions(sorted, key = 'points') {
-    let last = null, pos = 0;
+/**
+ * Kryteria rankingu z regulaminu: punkty, potem dokładne trafienia, potem trafienia różnicy.
+ * Jedno źródło prawdy dla rankingu sezonu, pozycji po kolejkach i rankingu wszech czasów.
+ */
+const RANK_KEYS = ['points', 'perfects', 'diffs'];
+function compareRank(a, b) {
+    for (const k of RANK_KEYS) {
+        const d = (b[k] || 0) - (a[k] || 0);
+        if (d) return d;
+    }
+    return 0;
+}
+const sortRanking = list => list.sort((a, b) => compareRank(a, b) || String(a.nickname).localeCompare(String(b.nickname), 'pl'));
+
+/** Pozycje: ex aequo TYLKO przy pełnym remisie we wszystkich kryteriach. Lista musi być posortowana. */
+function assignPositions(sorted, cmp = compareRank) {
     sorted.forEach((s, i) => {
-        if (s[key] !== last) { pos = i + 1; last = s[key]; }
-        s.position = pos;
+        s.position = i > 0 && cmp(sorted[i - 1], s) === 0 ? sorted[i - 1].position : i + 1;
     });
     return sorted;
 }
@@ -200,7 +212,7 @@ function buildPlayerStats({ players, predictions, matches, longTerms }) {
             nickname: nick, points: 0, matchPoints: 0, longTermPoints: 0,
             perfects: 0, diffs: 0, winners: 0, misses: 0, filled: 0, settled: 0,
             jokerUsed: false, jokerMatchId: null, jokerPoints: 0,
-            byRound: {}, bestRound: { round: null, points: 0 }, form: []
+            byRound: {}, byRoundExact: {}, byRoundDiff: {}, bestRound: { round: null, points: 0 }, form: []
         };
         return stats[nick];
     };
@@ -226,6 +238,8 @@ function buildPlayerStats({ players, predictions, matches, longTerms }) {
         else s.misses++;
 
         s.byRound[m.round] = (s.byRound[m.round] || 0) + pts;
+        if (o === 'exact') s.byRoundExact[m.round] = (s.byRoundExact[m.round] || 0) + 1;
+        if (o === 'diff') s.byRoundDiff[m.round] = (s.byRoundDiff[m.round] || 0) + 1;
     });
 
     (longTerms || []).forEach(lt => {
@@ -244,9 +258,7 @@ function buildPlayerStats({ players, predictions, matches, longTerms }) {
         s.hitRate = s.settled ? Math.round(((s.settled - s.misses) / s.settled) * 100) : 0;
     });
 
-    const sorted = Object.values(stats).sort((a, b) =>
-        b.points - a.points || b.perfects - a.perfects || b.diffs - a.diffs || a.nickname.localeCompare(b.nickname, 'pl'));
-    return assignPositions(sorted);
+    return assignPositions(sortRanking(Object.values(stats)));
 }
 
 /** Zwycięzcy poszczególnych rund - fajna statystyka do rankingu. */
@@ -258,8 +270,30 @@ function buildRoundWinners(stats, matches) {
             .filter(s => s.points > 0)
             .sort((a, b) => b.points - a.points);
         const top = scores.length ? scores[0].points : 0;
-        return { round: r, points: top, winners: scores.filter(s => s.points === top).map(s => s.nickname) };
+        // complete = wszystkie mecze kolejki rozliczone (albo anulowane) - dopiero wtedy zwycięzca jest ostateczny
+        const complete = matches.filter(m => m.round === r).every(m => m.voidPredictions || (m.homeScore !== null && m.homeScore !== undefined));
+        return { round: r, points: top, winners: scores.filter(s => s.points === top).map(s => s.nickname), complete };
     }).filter(r => r.winners.length);
+}
+
+/**
+ * Finał sezonu: Mistrz Typera i podium. Tylko gdy admin zamknął sezon - wcześniej lider jest tylko liderem.
+ * Ex aequo (pełny remis we wszystkich kryteriach rankingu) = kilku mistrzów, a podium może mieć więcej niż 3 osoby.
+ */
+function buildFinale(season, stats) {
+    if (!season || !season.isFinished) return null;
+    const podium = stats.filter(s => s.points > 0 && s.position <= 3) // medal za 0 pkt nie przysługuje
+        .map(s => ({ nickname: s.nickname, position: s.position, points: s.points, perfects: s.perfects, diffs: s.diffs }));
+    const champions = podium.filter(s => s.position === 1).map(s => s.nickname);
+    if (!champions.length) return null;
+    const ws = season.winnerSurprise || {};
+    return {
+        year: season.year,
+        champions,
+        podium,
+        hasSurprise: !!(ws.prize || ws.message),
+        revealed: (ws.revealedBy || []).filter(n => champions.includes(n))
+    };
 }
 
 /**
@@ -268,16 +302,20 @@ function buildRoundWinners(stats, matches) {
  */
 function buildRoundProgress(stats, matches) {
     const rounds = [...new Set(matches.filter(isSettled).map(m => Number(m.round)))].sort((a, b) => a - b);
-    const cumulative = {};
-    stats.forEach(s => { cumulative[s.nickname] = 0; });
-    const series = {}, byNick = {};
-    stats.forEach(s => { series[s.nickname] = []; byNick[s.nickname] = s; });
+    const cum = {}, series = {};
+    stats.forEach(s => { cum[s.nickname] = { nickname: s.nickname, points: 0, perfects: 0, diffs: 0 }; series[s.nickname] = []; });
+    const byNick = {};
+    stats.forEach(s => { byNick[s.nickname] = s; });
 
     rounds.forEach(r => {
-        stats.forEach(s => { cumulative[s.nickname] += s.byRound[r] || 0; });
-        const ordered = stats.map(s => ({ nickname: s.nickname, points: cumulative[s.nickname] }))
-            .sort((a, b) => b.points - a.points || a.nickname.localeCompare(b.nickname, 'pl'));
-        assignPositions(ordered);
+        stats.forEach(s => {
+            const c = cum[s.nickname];
+            c.points += s.byRound[r] || 0;
+            c.perfects += (s.byRoundExact || {})[r] || 0;
+            c.diffs += (s.byRoundDiff || {})[r] || 0;
+        });
+        // te same kryteria co w rankingu sezonu (punkty, dokładne, różnice)
+        const ordered = assignPositions(sortRanking(Object.values(cum).map(c => ({ ...c }))));
         ordered.forEach(o => {
             series[o.nickname].push({ round: r, points: byNick[o.nickname].byRound[r] || 0, total: o.points, position: o.position });
         });
@@ -334,7 +372,7 @@ function buildAllTime(seasons) {
             a.points += s.points; a.settled += s.settled;
             a.perfects += s.perfects; a.diffs += s.diffs; a.winners += s.winners; a.misses += s.misses;
             a.seasons.push(year);
-            if (isFinished) {
+            if (isFinished && s.points > 0) { // te same zasady co podium w buildFinale
                 if (s.position === 1) a.titles.push(year);
                 if (s.position <= 3) a.podiums++;
                 if (a.bestFinish === null || s.position < a.bestFinish) a.bestFinish = s.position;
@@ -346,8 +384,48 @@ function buildAllTime(seasons) {
         seasons: a.seasons.sort((x, y) => x - y),
         avgPerMatch: a.settled ? Math.round((a.points / a.settled) * 100) / 100 : 0,
         hitRate: a.settled ? Math.round(((a.settled - a.misses) / a.settled) * 100) : 0
-    })).sort((x, y) => y.points - x.points || y.perfects - x.perfects || x.nickname.localeCompare(y.nickname, 'pl'));
-    return assignPositions(list);
+    }));
+    return assignPositions(sortRanking(list));
+}
+
+/**
+ * Puchar Typerów liczony na bieżąco z typów (pary z autoScore), więc po korekcie wyniku meczu
+ * drabinka aktualizuje się sama. Rozstrzygnięcie dopiero, gdy cała kolejka jest rozliczona.
+ * Remis (regulamin): więcej dokładnych trafień w tej kolejce, a gdy i to równe - wyżej
+ * rozstawiony gracz (player1; generator stawia tam lepszego w rankingu).
+ */
+function buildCupResults(cupMatches, predictions, matches) {
+    const byId = indexMatches(matches);
+    const roundStats = (nick, round) => {
+        let pts = 0, exact = 0;
+        (predictions || []).forEach(p => {
+            if (p.nickname !== nick) return;
+            const m = byId[p.matchId];
+            if (!m || Number(m.round) !== Number(round) || !isSettled(m)) return;
+            pts += p.pointsEarned || 0;
+            if (outcomeFor(p, m) === 'exact') exact++;
+        });
+        return { pts, exact };
+    };
+    return (cupMatches || []).map(c => {
+        const raw = c.toObject ? c.toObject() : { ...c };
+        const rm = raw.roundNumber ? matches.filter(m => Number(m.round) === Number(raw.roundNumber)) : [];
+        const started = rm.some(isSettled);
+        const roundDone = rm.length > 0 && rm.every(m => m.voidPredictions || (m.homeScore !== null && m.homeScore !== undefined));
+        const a = raw.roundNumber ? roundStats(raw.player1, raw.roundNumber) : { pts: 0, exact: 0 };
+        const b = raw.roundNumber ? roundStats(raw.player2, raw.roundNumber) : { pts: 0, exact: 0 };
+        const auto = raw.autoScore !== false && !!raw.roundNumber;
+        const score1 = auto ? (started ? a.pts : null) : (raw.score1 ?? null);
+        const score2 = auto ? (started ? b.pts : null) : (raw.score2 ?? null);
+        const finished = auto ? roundDone : (score1 !== null && score2 !== null);
+        let winner = null, decidedBy = null;
+        if (finished && score1 !== null && score2 !== null) {
+            if (score1 !== score2) { winner = score1 > score2 ? raw.player1 : raw.player2; decidedBy = 'points'; }
+            else if (a.exact !== b.exact) { winner = a.exact > b.exact ? raw.player1 : raw.player2; decidedBy = 'exact'; }
+            else { winner = raw.player1; decidedBy = 'seed'; }
+        }
+        return { ...raw, score1, score2, exact1: a.exact, exact2: b.exact, finished, live: started && !finished, winner, decidedBy };
+    });
 }
 
 /**
@@ -379,5 +457,5 @@ function maskPredictions(predictions, matches, lockMinutes, now = Date.now()) {
 module.exports = {
     HOUR, MINUTE, scoringOf, stageNamesOf, playoffRoundsOf, lockMinutesOf, lockTime, isLocked, isSettled,
     outcomeOf, calculatePoints, settle, buildStandings, buildPlayerStats, buildRoundWinners, buildRoundProgress,
-    buildH2H, buildAllTime, uniqueTeams, indexMatches, maskPredictions
+    buildH2H, buildAllTime, buildCupResults, buildFinale, compareRank, uniqueTeams, indexMatches, maskPredictions
 };

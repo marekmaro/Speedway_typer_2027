@@ -386,45 +386,74 @@ function renderFullSchedule() {
     }).join('');
 }
 
-function renderRules() {
+/**
+ * Regulamin generowany z ustawień sezonu. Każde zdanie ma pokrycie w logice serwera
+ * (services/scoring.js, routes/publicRoutes.js) i w testach (test/scenarios.test.js).
+ */
+function rulesSections() {
     const s = D.season.scoring;
     const lock = T.lockLabel(D.season.lockMinutes);
-    const h = (t) => `<h4 class="font-extrabold text-base mb-1.5">${t}</h4>`;
-    const ul = items => `<ul class="list-disc pl-5 space-y-1 text-muted">${items.map(i => `<li>${i}</li>`).join('')}</ul>`;
-    document.getElementById('rules-content').innerHTML = `
-    <div>${h('🕒 Zgłaszanie typów')}${ul([
-        `Typujesz przez swój prywatny link (najlepiej dodany do ekranu głównego telefonu) — najpóźniej <strong class="text-ink">${lock} przed pierwszym biegiem</strong>.`,
-        'Blokadę sprawdza serwer, nie przeglądarka. Typy innych są zakryte do momentu blokady.',
-        'Zapis jest automatyczny po wpisaniu wyniku.'
-    ])}</div>
-    <div>${h('🎯 Punktacja')}
-        <div class="grid grid-cols-4 gap-2 text-center">
-            <div class="rounded-xl bg-raised p-2"><div class="text-xl font-black">${s.exact}</div><div class="text-[11px] text-muted">dokładny wynik</div></div>
-            <div class="rounded-xl bg-raised p-2"><div class="text-xl font-black">${s.diff}</div><div class="text-[11px] text-muted">zwycięzca + różnica</div></div>
-            <div class="rounded-xl bg-raised p-2"><div class="text-xl font-black">${s.winner}</div><div class="text-[11px] text-muted">zwycięzca</div></div>
-            <div class="rounded-xl bg-raised p-2"><div class="text-xl font-black">0</div><div class="text-[11px] text-muted">pudło</div></div>
-        </div></div>
-    <div>${h('⭐ Premie')}${ul([
-        `<strong class="text-ink">Joker (x${s.jokerMultiplier})</strong> — raz w sezonie mnożysz dorobek z jednego meczu. Można go przenosić, dopóki wybrany mecz nie jest zablokowany.`,
-        `<strong class="text-ink">Złoty Kask</strong> — w wyróżnionym meczu kolejki trafienie za ${s.exact} lub ${s.diff} pkt daje <strong class="text-ink">+${s.motrBonus}</strong>.`,
-        `Maksimum z jednego meczu: <strong class="text-ink">${(s.exact + s.motrBonus) * s.jokerMultiplier} pkt</strong>.`
-    ])}</div>
-    <div>${h(`🔮 Typy sezonowe (do ${s.longTermEach * 3} pkt)`)}${ul([
-        `Mistrz Polski, brązowy medalista i spadkowicz — po +${s.longTermEach} pkt.`,
-        'Typujesz przed pierwszym meczem sezonu.'
-    ])}</div>
-    <div>${h('🏆 Puchar Typerów')}${ul([
-        'Pary rozstawiane według rankingu (1 vs ostatni itd.).',
-        'Wygrywa ten, kto w wyznaczonej kolejce zdobędzie więcej punktów.'
-    ])}</div>
-    <div>${h('🌧️ Sytuacje żużlowe')}${ul([
-        'Mecz przełożony <strong class="text-ink">przed</strong> blokadą: typy zostają i możesz je zmieniać do nowej blokady.',
-        'Mecz przełożony <strong class="text-ink">po</strong> blokadzie (np. deszcz w dniu meczu): typy były już jawne, więc zostają zamrożone do nowego terminu.',
-        'Mecz przerwany po co najmniej 8 biegach: liczy się wynik zatwierdzony przez ligę.',
-        'Walkower lub mecz odwołany na stałe: typy są anulowane, a Joker wraca do gracza.',
-        'Remis w rankingu rozstrzyga liczba dokładnych trafień, potem trafień różnicy.',
-        'Wyniki zatwierdza admin (także te pobrane automatycznie) — jego decyzja jest ostateczna.'
-    ])}</div>`;
+    const remind = T.lockLabel(D.season.reminderMinutes || 120);
+    const max = (s.exact + s.motrBonus) * s.jokerMultiplier;
+    const b = t => `<strong class="text-ink">${t}</strong>`;
+    return [
+        { icon: '🕒', title: 'Typowanie', items: [
+            `Typujesz przez swój prywatny link (najlepiej dodany do ekranu głównego) — najpóźniej ${b(`${lock} przed pierwszym biegiem`)} meczu.`,
+            'Blokadę sprawdza serwer, według czasu serwera — zły zegarek w telefonie nic nie zmienia.',
+            'Typy innych są zakryte do blokady. Wcześniej widać tylko, kto już wytypował.',
+            'Zapis jest automatyczny. Do blokady typ możesz zmieniać, a wyczyszczenie obu pól usuwa typ.',
+            'Typ to dwie liczby 0–75. Brak typu = 0 pkt.',
+            `Po włączeniu powiadomień dostaniesz przypomnienie ${remind} przed blokadą, jeśli nie masz typu.`
+        ] },
+        { icon: '🎯', title: 'Punkty za mecz', scoring: true, items: [
+            `Przykład przy wyniku 46:44: typ 46:44 → ${b(s.exact)} · 47:45 → ${b(s.diff)} · 50:40 → ${b(s.winner)} · 44:46 → ${b(0)}.`,
+            `Remis: trafiony remis z innym wynikiem (np. 45:45 przy 44:44) = ${b(s.diff)} pkt. Typ na remis, gdy ktoś wygrał = 0 pkt.`
+        ] },
+        { icon: '⭐', title: 'Premie', items: [
+            `${b(`Joker x${s.jokerMultiplier}`)} — raz w sezonie mnożysz dorobek z jednego meczu (razem z premią Złotego Kasku). Wymaga wpisanego typu. Można go przenosić, dopóki mecz z Jokerem nie jest zablokowany.`,
+            `${b('Złoty Kask')} — wyróżniony mecz kolejki: trafienie za ${s.exact} lub ${s.diff} pkt daje ${b(`+${s.motrBonus}`)}.`,
+            `Maksimum z jednego meczu: ${b(`${max} pkt`)}.`
+        ] },
+        { icon: '🔮', title: `Typy sezonowe (do ${s.longTermEach * 3} pkt)`, items: [
+            `Mistrz Polski, brązowy medalista i spadkowicz — po ${b(`+${s.longTermEach}`)} pkt za każde trafienie.`,
+            'Trzy różne drużyny. Typujesz do blokady pierwszego meczu sezonu — potem typy wszystkich stają się widoczne.',
+            'Rozliczenie po zakończeniu sezonu, według ostatecznych wyników ligi.'
+        ] },
+        { icon: '📊', title: 'Ranking', items: [
+            'Liczą się punkty za mecze plus typy sezonowe.',
+            `Przy równej liczbie punktów wyżej jest ten, kto ma ${b('więcej dokładnych trafień')}, a potem ${b('więcej trafień „zwycięzca + różnica”')}. Pełny remis = ex aequo.`,
+            'Mecze play-off (np. półfinały, finał) typujesz i punktujesz jak każde inne.',
+            'Zwycięzca kolejki: najwięcej punktów w kolejce (przy remisie — kilku zwycięzców).'
+        ] },
+        { icon: '🏆', title: 'Puchar Typerów', items: [
+            'Pary według rankingu: 1. z ostatnim, 2. z przedostatnim…',
+            'Wygrywa ten, kto w wyznaczonej kolejce zdobędzie więcej punktów (z Jokerem i Kaskiem). Rozstrzygnięcie po rozliczeniu całej kolejki.',
+            `Remis: więcej dokładnych trafień w tej kolejce, a gdy i to równe — ${b('wyżej rozstawiony')}.`
+        ] },
+        { icon: '🌧️', title: 'Sytuacje żużlowe', items: [
+            `Mecz przełożony ${b('przed')} blokadą — typy zostają i możesz je zmieniać do nowej blokady (także gdy nowy termin jeszcze nie jest znany).`,
+            `Mecz przełożony ${b('po')} blokadzie (np. deszcz w dniu meczu) — typy były już jawne, więc zostają zamrożone do nowego terminu.`,
+            'Mecz przerwany po co najmniej 8 biegach — liczy się wynik zaliczony przez ligę. Przerwany wcześniej — traktujemy jak przełożony.',
+            'Walkower albo mecz odwołany — typy anulowane (nikt nie dostaje punktów), a Joker wraca do gracza.',
+            'Tabela ligi: 2 pkt za zwycięstwo, 1 za remis, +1 za wygrany dwumecz (suma małych punktów z obu meczów). Play-off nie wlicza się do tabeli.'
+        ] },
+        { icon: '👑', title: 'Mistrz Typera', items: [
+            `Zwycięzca sezonu zostaje ${b('Mistrzem Typera')}: trafia do galerii mistrzów, dostaje dyplom i niespodziankę od organizatora 🎁.`,
+            'Wyniki zatwierdza admin (także te pobrane automatycznie) — jego decyzja jest ostateczna.'
+        ] }
+    ];
+}
+
+function renderRules() {
+    const s = D.season.scoring;
+    const tiles = [[s.exact, 'dokładny wynik'], [s.diff, 'zwycięzca + różnica'], [s.winner, 'zwycięzca'], [0, 'pudło']];
+    document.getElementById('rules-content').innerHTML = rulesSections().map(sec => `
+    <div class="rule-block">
+        <h4 class="rule-title"><span aria-hidden="true">${sec.icon}</span> ${sec.title}</h4>
+        ${sec.scoring ? `<div class="grid grid-cols-4 gap-2 text-center mb-2">${tiles.map(([v, t]) => `
+            <div class="score-tile"><div class="text-2xl font-black">${v}</div><div class="text-[11px] text-muted leading-tight">${t}</div></div>`).join('')}</div>` : ''}
+        <ul class="rule-list">${sec.items.map(i => `<li>${i}</li>`).join('')}</ul>
+    </div>`).join('');
 }
 
 /* ---------------- instalacja PWA ---------------- */

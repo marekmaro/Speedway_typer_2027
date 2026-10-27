@@ -44,6 +44,48 @@ const clampScore = v => {
 
 /* ================= SEZONY ================= */
 
+const surpriseOf = s => {
+    const ws = (s && s.winnerSurprise) || {};
+    return { prize: ws.prize || '', message: ws.message || '', revealedBy: ws.revealedBy || [] };
+};
+
+/** Zapis treści niespodzianki (bez ruszania listy "kto już odkrył"). */
+function setSurprise(season, { prize, message }) {
+    const cur = surpriseOf(season);
+    season.winnerSurprise = {
+        prize: prize === undefined ? cur.prize : String(prize).trim().slice(0, 200),
+        message: message === undefined ? cur.message : String(message).trim().slice(0, 1000),
+        revealedBy: cur.revealedBy
+    };
+}
+
+/**
+ * Po zamknięciu sezonu: Mistrz dostaje powiadomienie o niespodziance, pozostali - o końcu sezonu.
+ * onceOnly: ponowne zamknięcie (np. po korekcie) nie wyśle drugi raz tego samego.
+ */
+async function announceFinale(season) {
+    const [matches, predictions, longTerms, inSeason] = await Promise.all([
+        Match.find({ season: season.year }).lean(),
+        Prediction.find({ season: season.year }).lean(),
+        LongTerm.find({ season: season.year }).lean(),
+        Player.find({ seasons: season.year }).lean()
+    ]);
+    const players = inSeason.length ? inSeason : await Player.find().lean();
+    const stats = S.buildPlayerStats({ players, predictions, matches, longTerms });
+    const finale = S.buildFinale(season, stats);
+    if (!finale) return { champions: [], sent: 0 };
+    const names = finale.champions.join(', ');
+    let sent = 0;
+    for (const p of players) {
+        const isChamp = finale.champions.includes(p.nickname);
+        if (!(await push.onceOnly(`finale:${season.year}:${p.nickname}:${isChamp ? 'champ' : 'all'}`))) continue;
+        sent += await push.notifyPlayer(p.nickname, isChamp
+            ? { title: '🏆 Zostałeś Mistrzem Typera!', body: `Sezon ${season.year} jest Twój. Otwórz aplikację — czeka na Ciebie niespodzianka 🎁`, url: `/typuj.html?id=${p.token}`, tag: 'finale' }
+            : { title: `🏁 Koniec sezonu ${season.year}`, body: `Mistrzem Typera ${finale.champions.length > 1 ? 'zostają' : 'został'}: ${names}. Zobacz podium!`, url: '/#ranking', tag: 'finale' });
+    }
+    return { champions: finale.champions, sent };
+}
+
 router.get('/seasons', wrap(async (req, res) => {
     const seasons = await Season.find().sort({ year: -1 });
     const out = [];
@@ -56,6 +98,7 @@ router.get('/seasons', wrap(async (req, res) => {
             standingsAdjustments: s.standingsAdjustments || [],
             teamAliases: s.teamAliases ? Object.fromEntries(s.teamAliases instanceof Map ? s.teamAliases : Object.entries(s.teamAliases)) : {},
             scraperUrls: s.scraperUrls || [],
+            winnerSurprise: surpriseOf(s),
             matches: await Match.countDocuments({ season: s.year }),
             predictions: await Prediction.countDocuments({ season: s.year })
         });
@@ -113,13 +156,19 @@ router.post('/season/activate', wrap(async (req, res) => {
 /** Zamknięcie sezonu: przyznanie punktów za typy długoterminowe + oznaczenie archiwum. */
 router.post('/season/finish', wrap(async (req, res) => {
     const season = await seasonOf(req);
-    const { champion, bronze, relegation, markFinished } = req.body || {};
+    const { champion, bronze, relegation, markFinished, prize, message } = req.body || {};
+    const picked = [champion, bronze, relegation].filter(Boolean);
+    if (new Set(picked).size !== picked.length) return res.status(400).json({ error: 'Mistrz, brązowy medalista i spadkowicz muszą być różnymi drużynami.' });
     const out = await resolveLongTerm(season.year, { champion, bronze, relegation });
+    if (prize !== undefined || message !== undefined) setSurprise(season, { prize, message });
+    if (markFinished) season.isFinished = true;
+    await season.save();
+    let extra = '';
     if (markFinished) {
-        season.isFinished = true;
-        await season.save();
+        const fin = await announceFinale(season);
+        if (fin.champions.length) extra = ` Mistrz Typera: ${fin.champions.join(', ')}${fin.sent ? ` (powiadomienia: ${fin.sent})` : ''}.`;
     }
-    res.json({ message: `Rozliczono ${out.players} graczy (przyznano ${out.awarded} pkt).` });
+    res.json({ message: `Rozliczono ${out.players} graczy (przyznano ${out.awarded} pkt).${extra}` });
 }));
 
 router.post('/season/reopen', wrap(async (req, res) => {
@@ -135,8 +184,9 @@ router.post('/season/reopen', wrap(async (req, res) => {
  */
 router.post('/season/settings', wrap(async (req, res) => {
     const season = await seasonOf(req);
-    const { lockMinutes, standingsAdjustments, teamAliases, scraperUrls, scoring } = req.body || {};
+    const { lockMinutes, standingsAdjustments, teamAliases, scraperUrls, scoring, winnerSurprise } = req.body || {};
     if (lockMinutes !== undefined && lockMinutes !== '') season.lockMinutes = clampLock(lockMinutes);
+    if (winnerSurprise && typeof winnerSurprise === 'object') setSurprise(season, winnerSurprise);
     if (Array.isArray(standingsAdjustments)) {
         season.standingsAdjustments = standingsAdjustments
             .map(a => ({ team: String(a.team || '').trim(), points: Number(a.points) || 0, reason: String(a.reason || '').slice(0, 200) }))
@@ -538,6 +588,8 @@ router.post('/longterm', wrap(async (req, res) => {
     const season = await seasonOf(req);
     const { nickname, champion, bronze, relegation } = req.body || {};
     if (!nickname) return res.status(400).json({ error: 'Wybierz gracza.' });
+    const picked = [champion, bronze, relegation].filter(Boolean);
+    if (new Set(picked).size !== picked.length) return res.status(400).json({ error: 'Typy sezonowe muszą wskazywać trzy różne drużyny.' });
     await LongTerm.findOneAndUpdate(
         { season: season.year, nickname },
         { champion: champion || '', bronze: bronze || '', relegation: relegation || '' },
