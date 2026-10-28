@@ -133,6 +133,10 @@ const resultDraftSchema = new mongoose.Schema({
     snippet: String,         // fragment tekstu, z którego odczytano wynik (do weryfikacji wzrokiem)
     warnings: { type: [String], default: [] },
     blockers: { type: [String], default: [] }, // poważne problemy - zatwierdzenie wymaga korekty
+    notes: { type: [String], default: [] },    // informacje bez zastrzeżeń (np. "zgodne w 2 źródłach")
+    // odczyt ze źródła, gdy admin zatwierdził poprawione liczby - żeby błędny odczyt nie wracał przy kolejnym pobraniu
+    scrapedHome: { type: Number, default: null },
+    scrapedAway: { type: Number, default: null },
     status: { type: String, default: 'draft' }, // 'draft' | 'approved' | 'rejected'
     decidedAt: { type: Date, default: null }
 }, { timestamps: true });

@@ -391,29 +391,36 @@ function buildAllTime(seasons) {
 /**
  * Puchar Typerów liczony na bieżąco z typów (pary z autoScore), więc po korekcie wyniku meczu
  * drabinka aktualizuje się sama. Rozstrzygnięcie dopiero, gdy cała kolejka jest rozliczona.
- * Remis (regulamin): więcej dokładnych trafień w tej kolejce, a gdy i to równe - wyżej
- * rozstawiony gracz (player1; generator stawia tam lepszego w rankingu).
+ * Remis (regulamin): więcej dokładnych trafień w tej kolejce, potem mniejsza łączna pomyłka
+ * (suma |typ - wynik| gospodarzy i gości; mecz bez typu = CUP_MISSING_ERROR), a dopiero gdy i to
+ * równe - wyżej rozstawiony gracz (player1; generator stawia tam lepszego w rankingu).
+ * Symulacja (npm run symulacja) pokazała, że bez "pomyłki" co trzeci pojedynek rozstrzygało rozstawienie.
  */
+const CUP_MISSING_ERROR = 90;
 function buildCupResults(cupMatches, predictions, matches) {
-    const byId = indexMatches(matches);
+    const settledByRound = {};
+    (matches || []).filter(isSettled).forEach(m => { (settledByRound[Number(m.round)] = settledByRound[Number(m.round)] || []).push(m); });
+    const predOf = {};
+    (predictions || []).forEach(p => { predOf[`${p.nickname}|${p.matchId}`] = p; });
     const roundStats = (nick, round) => {
-        let pts = 0, exact = 0;
-        (predictions || []).forEach(p => {
-            if (p.nickname !== nick) return;
-            const m = byId[p.matchId];
-            if (!m || Number(m.round) !== Number(round) || !isSettled(m)) return;
+        let pts = 0, exact = 0, error = 0;
+        (settledByRound[Number(round)] || []).forEach(m => {
+            const p = predOf[`${nick}|${m._id}`];
+            if (!p) { error += CUP_MISSING_ERROR; return; }
             pts += p.pointsEarned || 0;
             if (outcomeFor(p, m) === 'exact') exact++;
+            error += Math.abs(p.homePred - m.homeScore) + Math.abs(p.awayPred - m.awayScore);
         });
-        return { pts, exact };
+        return { pts, exact, error };
     };
     return (cupMatches || []).map(c => {
         const raw = c.toObject ? c.toObject() : { ...c };
         const rm = raw.roundNumber ? matches.filter(m => Number(m.round) === Number(raw.roundNumber)) : [];
         const started = rm.some(isSettled);
         const roundDone = rm.length > 0 && rm.every(m => m.voidPredictions || (m.homeScore !== null && m.homeScore !== undefined));
-        const a = raw.roundNumber ? roundStats(raw.player1, raw.roundNumber) : { pts: 0, exact: 0 };
-        const b = raw.roundNumber ? roundStats(raw.player2, raw.roundNumber) : { pts: 0, exact: 0 };
+        const none = { pts: 0, exact: 0, error: 0 };
+        const a = raw.roundNumber ? roundStats(raw.player1, raw.roundNumber) : none;
+        const b = raw.roundNumber ? roundStats(raw.player2, raw.roundNumber) : none;
         const auto = raw.autoScore !== false && !!raw.roundNumber;
         const score1 = auto ? (started ? a.pts : null) : (raw.score1 ?? null);
         const score2 = auto ? (started ? b.pts : null) : (raw.score2 ?? null);
@@ -422,9 +429,14 @@ function buildCupResults(cupMatches, predictions, matches) {
         if (finished && score1 !== null && score2 !== null) {
             if (score1 !== score2) { winner = score1 > score2 ? raw.player1 : raw.player2; decidedBy = 'points'; }
             else if (a.exact !== b.exact) { winner = a.exact > b.exact ? raw.player1 : raw.player2; decidedBy = 'exact'; }
+            else if (auto && a.error !== b.error) { winner = a.error < b.error ? raw.player1 : raw.player2; decidedBy = 'error'; }
             else { winner = raw.player1; decidedBy = 'seed'; }
         }
-        return { ...raw, score1, score2, exact1: a.exact, exact2: b.exact, finished, live: started && !finished, winner, decidedBy };
+        return {
+            ...raw, score1, score2, exact1: a.exact, exact2: b.exact,
+            error1: started ? a.error : null, error2: started ? b.error : null,
+            finished, live: started && !finished, winner, decidedBy
+        };
     });
 }
 
@@ -457,5 +469,5 @@ function maskPredictions(predictions, matches, lockMinutes, now = Date.now()) {
 module.exports = {
     HOUR, MINUTE, scoringOf, stageNamesOf, playoffRoundsOf, lockMinutesOf, lockTime, isLocked, isSettled,
     outcomeOf, calculatePoints, settle, buildStandings, buildPlayerStats, buildRoundWinners, buildRoundProgress,
-    buildH2H, buildAllTime, buildCupResults, buildFinale, compareRank, uniqueTeams, indexMatches, maskPredictions
+    buildH2H, buildAllTime, buildCupResults, CUP_MISSING_ERROR, buildFinale, compareRank, uniqueTeams, indexMatches, maskPredictions
 };

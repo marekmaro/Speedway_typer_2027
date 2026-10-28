@@ -19,7 +19,8 @@
     "test:unit": "node test/scoring.test.js",
     "test:api": "node test/api.test.js",
     "test:scenarios": "node test/scenarios.test.js",
-    "test:e2e": "node test/e2e.test.js"
+    "test:e2e": "node test/e2e.test.js",
+    "symulacja": "node scripts/symulacja.js"
   },
   "dependencies": {
     "cheerio": "^1.2.0",

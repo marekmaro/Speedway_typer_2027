@@ -742,7 +742,10 @@ async function approveDraft(draft, override = {}) {
         throw Object.assign(new Error('Ten wynik nie przeszedł kontroli (patrz uwagi). Popraw liczby albo zatwierdź świadomie.'), { status: 409 });
     }
     const n = await applyResult(match, h, a, { source: corrected ? 'admin' : 'scraper', notify: override.notify !== false });
-    await ResultDraft.updateOne({ _id: draft._id }, { $set: { status: 'approved', decidedAt: new Date(), homeScore: h, awayScore: a } });
+    await ResultDraft.updateOne({ _id: draft._id }, { $set: {
+        status: 'approved', decidedAt: new Date(), homeScore: h, awayScore: a,
+        ...(corrected ? { scrapedHome: draft.homeScore, scrapedAway: draft.awayScore } : {})
+    } });
     // inne drafty tego meczu tracą sens
     await ResultDraft.updateMany({ matchId: draft.matchId, status: 'draft', _id: { $ne: draft._id } }, { $set: { status: 'rejected', decidedAt: new Date() } });
     return { match, h, a, n };
@@ -761,12 +764,15 @@ router.post('/drafts/approve', wrap(async (req, res) => {
     }
 }));
 
-/** Zatwierdź wszystkie drafty bez blokerów (najczęstszy przypadek: jeden klik po kolejce). */
+/**
+ * "Zatwierdź wszystkie bez uwag": tylko drafty bez blokerów I bez ostrzeżeń (najczęstszy przypadek: jeden klik po kolejce).
+ * Draft z ostrzeżeniem (np. źródła podają różne wyniki) admin zatwierdza pojedynczo - po rzuceniu okiem na fragment ze źródła.
+ */
 router.post('/drafts/approve-all', wrap(async (req, res) => {
     const drafts = await ResultDraft.find({ status: 'draft' });
     let ok = 0, skipped = 0;
     for (const d of drafts) {
-        if ((d.blockers || []).length) { skipped++; continue; }
+        if ((d.blockers || []).length || (d.warnings || []).length) { skipped++; continue; }
         try { await approveDraft(d, { notify: req.body.notify !== false }); ok++; } catch (e) { skipped++; }
     }
     res.json({ message: `Zatwierdzono ${ok} wyników${skipped ? `, pominięto ${skipped} (wymagają ręcznej weryfikacji)` : ''}.` });

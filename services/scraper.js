@@ -230,35 +230,41 @@ async function runScrape(opts = {}) {
 
     let created = 0, updated = 0, unchanged = 0;
     const createdList = [];
-    for (const [matchId, list] of Object.entries(found)) {
+    const seasonDecided = Object.keys(found).length
+        ? await ResultDraft.find({ season: season.year, status: { $in: ['approved', 'rejected'] } }).lean() : [];
+    for (const [matchId, all] of Object.entries(found)) {
         const match = candidatesFor.find(m => String(m._id) === matchId);
-        const first = list[0];
-        const { blockers, warnings } = sanityCheck(first.homeScore, first.awayScore);
+        const confirmed = match.homeScore !== null && match.homeScore !== undefined;
+        const same = (c, h, a) => c.homeScore === h && c.awayScore === a;
+        // Wiersz z wynikiem innego meczu tych samych drużyn (np. z rundy zasadniczej, gdy teraz grają w play-off)
+        // to stary mecz, nie nowy - strony z wynikami często pokazują cały sezon. "Znany" = zatwierdzony wynik
+        // tamtego meczu albo odczyt, który admin już przy nim rozpatrzył (np. literówka portalu).
+        const knownFor = m => [[m.homeScore, m.awayScore], ...seasonDecided.filter(d => d.matchId === String(m._id))
+            .flatMap(d => [[d.homeScore, d.awayScore], [d.scrapedHome, d.scrapedAway]])];
+        const list = all.filter(c => !matches.some(m => String(m._id) !== matchId && m.homeTeam === match.homeTeam
+            && m.awayTeam === match.awayTeam && knownFor(m).some(([h, a]) => same(c, h, a))));
+        // Odczyty już rozpatrzone przez admina (zatwierdzone, poprawione albo odrzucone) nie wracają
+        const decided = seasonDecided.filter(d => d.matchId === matchId);
+        const isDecided = c => decided.some(d => same(c, d.homeScore, d.awayScore) || same(c, d.scrapedHome, d.scrapedAway));
+        const fresh = list.filter(c => !(confirmed && same(c, match.homeScore, match.awayScore)) && !isDecided(c));
+        if (!fresh.length) { unchanged++; continue; }
 
+        const first = fresh[0];
+        const { blockers, warnings } = sanityCheck(first.homeScore, first.awayScore);
+        const notes = [];
         const variants = [...new Set(list.map(c => `${c.homeScore}:${c.awayScore}`))];
         if (variants.length > 1) warnings.push(`Źródła podają różne wyniki: ${variants.join(' / ')}.`);
         list.forEach(c => { if (c.ambiguous) warnings.push(`W bloku tekstu jest kilka wyników (${c.ambiguous.join(', ')}) — wybrano pierwszy.`); });
         const sources = [...new Set(list.map(c => c.source))];
-        if (sources.length > 1 && variants.length === 1) warnings.unshift(`Zgodne w ${sources.length} źródłach.`);
-
-        const sameAsConfirmed = match.homeScore === first.homeScore && match.awayScore === first.awayScore;
-        if (match.homeScore !== null && match.homeScore !== undefined) {
-            if (sameAsConfirmed) { unchanged++; continue; }
-            warnings.unshift(`Uwaga: różni się od zatwierdzonego wyniku ${match.homeScore}:${match.awayScore} (korekta po weryfikacji?).`);
-        }
-
-        // Nie wracamy z wynikiem, który admin już zatwierdził lub odrzucił
-        const decided = await ResultDraft.findOne({
-            matchId, homeScore: first.homeScore, awayScore: first.awayScore, status: { $in: ['approved', 'rejected'] }
-        }).lean();
-        if (decided) { unchanged++; continue; }
+        if (sources.length > 1 && variants.length === 1) notes.push(`Zgodne w ${sources.length} źródłach.`);
+        if (confirmed) warnings.unshift(`Uwaga: różni się od zatwierdzonego wyniku ${match.homeScore}:${match.awayScore} (korekta po weryfikacji?).`);
 
         const existing = await ResultDraft.findOne({ matchId, status: 'draft' });
         const data = {
             season: season.year, matchId,
             homeScore: first.homeScore, awayScore: first.awayScore,
             source: sources.join(', '), sourceUrl: first.url, snippet: first.snippet,
-            warnings, blockers
+            warnings, blockers, notes
         };
         if (existing) {
             if (existing.homeScore === first.homeScore && existing.awayScore === first.awayScore) { unchanged++; continue; }

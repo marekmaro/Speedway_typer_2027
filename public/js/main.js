@@ -428,7 +428,7 @@ function rulesSections() {
         { icon: '🏆', title: 'Puchar Typerów', items: [
             'Pary według rankingu: 1. z ostatnim, 2. z przedostatnim…',
             'Wygrywa ten, kto w wyznaczonej kolejce zdobędzie więcej punktów (z Jokerem i Kaskiem). Rozstrzygnięcie po rozliczeniu całej kolejki.',
-            `Remis: więcej dokładnych trafień w tej kolejce, a gdy i to równe — ${b('wyżej rozstawiony')}.`
+            `Remis: więcej dokładnych trafień w tej kolejce, potem ${b('mniejsza łączna pomyłka')} (suma różnic między typami a wynikami, mecz bez typu = 90), a gdy i to równe — ${b('wyżej rozstawiony')}.`
         ] },
         { icon: '🌧️', title: 'Sytuacje żużlowe', items: [
             `Mecz przełożony ${b('przed')} blokadą — typy zostają i możesz je zmieniać do nowej blokady (także gdy nowy termin jeszcze nie jest znany).`,

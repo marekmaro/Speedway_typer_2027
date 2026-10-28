@@ -210,7 +210,7 @@ test('regulamin: zwycięzca kolejki przy remisie - kilku zwycięzców', () => {
     const st = S.buildPlayerStats({ players: [], predictions: pr, matches: ms, longTerms: [] });
     assert.deepStrictEqual(S.buildRoundWinners(st, ms)[0].winners.sort(), ['Ala', 'Bob']);
 });
-test('regulamin: puchar - remis rozstrzygają dokładne trafienia, potem wyżej rozstawiony; wynik po całej kolejce', () => {
+test('regulamin: puchar - remis: dokładne trafienia, mniejsza pomyłka, rozstawienie; wynik po całej kolejce', () => {
     const ms = [
         { _id: 'c1', round: 5, homeTeam: 'A', awayTeam: 'B', homeScore: 46, awayScore: 44, matchDate: '2027-04-01' },
         { _id: 'c2', round: 5, homeTeam: 'C', awayTeam: 'D', homeScore: null, awayScore: null, matchDate: '2027-04-02' }
@@ -236,6 +236,14 @@ test('regulamin: puchar - remis rozstrzygają dokładne trafienia, potem wyżej 
     pr.push({ nickname: 'Ala', matchId: 'c2', homePred: 44, awayPred: 44, pointsEarned: 3 });
     r = S.buildCupResults(cup, pr, ms)[0];
     assert.deepStrictEqual([r.score1, r.score2, r.winner, r.decidedBy], [6, 6, 'Bob', 'seed'], 'pełny remis - wyżej rozstawiony (gracz 1)');
+    // te same punkty i dokładne, ale Bob pomylił się bardziej (48:46 zamiast 47:45 przy 46:44) -> wygrywa Ala
+    Object.assign(pr[1], { homePred: 48, awayPred: 46, pointsEarned: 3 });
+    r = S.buildCupResults(cup, pr, ms)[0];
+    assert.deepStrictEqual([r.score1, r.score2, r.error1, r.error2, r.winner, r.decidedBy], [6, 6, 6, 4, 'Ala', 'error'], 'mniejsza łączna pomyłka');
+    // brak typu na mecz liczy się jako pomyłka 90
+    pr.splice(pr.findIndex(p => p.nickname === 'Bob' && p.matchId === 'c2'), 1);
+    r = S.buildCupResults(cup, pr, ms)[0];
+    assert.deepStrictEqual([r.score1, r.error1, r.winner], [3, 4 + S.CUP_MISSING_ERROR, 'Ala']);
 });
 
 test('finał sezonu: mistrz tylko po zamknięciu, ex aequo = kilku mistrzów, medal wymaga punktów', () => {
@@ -260,6 +268,17 @@ test('zwycięzca kolejki: "complete" dopiero, gdy cała kolejka rozliczona (anul
     const st = [{ nickname: 'Ala', byRound: { 1: 5, 2: 3 } }, { nickname: 'Bob', byRound: { 1: 2, 2: 3 } }];
     const rw = S.buildRoundWinners(st, ms);
     assert.deepStrictEqual(rw.map(r => [r.round, r.winners, r.complete]), [[1, ['Ala'], true], [2, ['Ala', 'Bob'], false]]);
+});
+
+test('krótkie nazwy drużyn: serwer (push) i przeglądarka dają to samo', () => {
+    const vm = require('vm');
+    const fs = require('fs');
+    const sandbox = { window: {}, navigator: {}, document: {}, localStorage: null, console };
+    vm.runInNewContext(fs.readFileSync(require.resolve('../public/js/shared.js'), 'utf8'), sandbox);
+    const names = require('../services/names');
+    ['Orlen Oil Motor Lublin', 'PRES Grupa Deweloperska Toruń', 'Stelmet Falubaz Zielona Góra', 'Gezet Stal Gorzów', 'Fogo Unia Leszno', 'Nowa Drużyna']
+        .forEach(t => assert.strictEqual(names.shortName(t), sandbox.window.T.shortName(t), t));
+    assert.strictEqual(names.shortName('PRES Grupa Deweloperska Toruń'), 'Toruń');
 });
 
 console.log('\nScraper (parsowanie bez sieci):');

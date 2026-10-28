@@ -11,6 +11,7 @@ const { runScrape } = require('./scraper');
 const push = require('./push');
 const S = require('./scoring');
 const { REMINDER_MINUTES } = require('../config');
+const { shortName: short } = require('./names');
 
 const running = new Set();
 
@@ -105,11 +106,6 @@ function reminderJob(opts = {}) {
         }
         return { ok: true, summary: `Mecze w oknie: ${matches.length}, wysłane przypomnienia: ${sent}.` };
     });
-}
-
-function short(name) {
-    const parts = String(name || '').split(/\s+/);
-    return parts.length > 2 ? parts.slice(-2).join(' ') : name;
 }
 
 /** setInterval dla serwera, który nie śpi (płatny plan / własny VPS / lokalnie). */

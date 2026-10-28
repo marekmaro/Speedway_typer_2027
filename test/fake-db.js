@@ -141,7 +141,7 @@ module.exports = function fakeModels() {
         Player: makeModel('Player', { isActive: true, seasons: [] }),
         LongTerm: makeModel('LongTerm', { pointsEarned: 0, champion: '', bronze: '', relegation: '' }),
         CupMatch: makeModel('CupMatch', { score1: null, score2: null, autoScore: true }),
-        ResultDraft: makeModel('ResultDraft', { status: 'draft', warnings: [], blockers: [] }),
+        ResultDraft: makeModel('ResultDraft', { status: 'draft', warnings: [], blockers: [], notes: [], scrapedHome: null, scrapedAway: null }),
         PushSubscription: makeModel('PushSubscription', { nickname: null, isAdmin: false, failures: 0 }, 'endpoint'),
         NotificationLog: makeModel('NotificationLog', {}, 'key'),
         JobRun: makeModel('JobRun', {})

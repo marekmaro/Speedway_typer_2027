@@ -6,6 +6,7 @@ const { Season, Prediction } = require('../models/Database');
 const { recalcMatch } = require('./seasons');
 const push = require('./push');
 const S = require('./scoring');
+const { shortName } = require('./names');
 
 /**
  * Zapisuje wynik, przelicza typy meczu i (opcjonalnie) wysyła graczom push z ich punktami.
@@ -35,7 +36,7 @@ async function notifyResult(match) {
     if (!push.isConfigured()) return 0;
     if (!(await push.onceOnly(`result:${match._id}:${match.homeScore}:${match.awayScore}`))) return 0;
     const preds = await Prediction.find({ matchId: String(match._id) }).lean();
-    const title = `🏁 ${S.isSettled(match) ? 'Wynik' : 'Mecz'}: ${match.homeTeam} – ${match.awayTeam}`;
+    const title = `🏁 ${S.isSettled(match) ? 'Wynik' : 'Mecz'}: ${shortName(match.homeTeam)} – ${shortName(match.awayTeam)}`;
     let sent = 0;
     for (const p of preds) {
         const body = match.voidPredictions
