@@ -5,6 +5,12 @@ typy sezonowe, Puchar Typerów i wiele sezonów. Wersja 3 dokłada: aplikację n
 półautomatyczne pobieranie wyników, przypomnienia push, statystyki (forma, H2H, ranking
 wszech czasów) i obsługę żużlowych sytuacji spornych (deszcz, walkower, korekty tabeli).
 
+Wygląd „żużel pod światłami”: nocny stadion i tor w nagłówku, kolory kasków (gospodarze czerwony
+i niebieski, goście biały i żółty), cyfry jak na tablicy wyników, światła startowe przy odliczaniu
+blokady, kaski-awatary graczy, podium rankingu i pojedynki pucharowe „czerwony kask vs niebieski”.
+Zwycięzca sezonu zostaje **Mistrzem Typera**: konfetti, zdrapka z niespodzianką od organizatora
+i dyplom do pobrania (więcej niżej). Cały sezon jest sprawdzony **symulacją ligi** (`SYMULACJA.md`).
+
 **Stos:** Node.js 22 + Express · MongoDB (Mongoose) · HTML + vanilla JS + Tailwind CSS (budowany) ·
 cheerio (scraper) · web-push (VAPID) · hosting Render + MongoDB Atlas.
 
@@ -39,17 +45,19 @@ npm install
 cp .env.example .env     # uzupełnij MONGODB_URI i ADMIN_PASSWORD
 npm run build:css        # Tailwind -> public/css/app.css (plik jest też w repo)
 npm start                # http://localhost:3000
-npm test                 # 175 testów (jednostkowe, API, 74 scenariusze), bez bazy
+npm test                 # 196 testów (jednostkowe, API, 87 scenariuszy), bez bazy
 npm run demo             # cała aplikacja na przykładowych danych, BEZ MongoDB (admin: "demo")
+npm run symulacja        # cały sezon w aplikacji + Monte Carlo zasad -> SYMULACJA.md
+npm run symulacja -- --serve   # ...i obejrzyj zakończony sezon (podium, zdrapka mistrza) na :3000
 ```
 
 Kontrola stanu: `GET /healthz` (baza, push, wersja plików).
 
 ### Testy w przeglądarce (opcjonalnie)
 
-43 testy E2E klikają aplikację w prawdziwym Chromium (widok telefonu i komputera): typowanie,
+48 testów E2E klika aplikację w prawdziwym Chromium (widok telefonu i komputera): typowanie,
 autozapis, joker, blokadę w trakcie, dwa telefony jednego gracza, brak sieci, źle ustawiony zegar,
-PWA offline i cały panel admina. Wymagają Playwrighta, którego nie ma w zależnościach (żeby nie
+PWA offline, cały panel admina oraz koniec sezonu (baner mistrza, zdrapka, dyplom). Wymagają Playwrighta, którego nie ma w zależnościach (żeby nie
 spowalniał deployu):
 
 ```bash
@@ -83,10 +91,18 @@ Typuje się **wynik meczu** (np. 47:43). Punktacja i blokada są ustawiane per s
 (*Sezon → Zasady*), a regulamin na stronie generuje się z tych ustawień.
 
 - **5 pkt** dokładny wynik · **3 pkt** zwycięzca + dokładna różnica · **2 pkt** zwycięzca · **0** pudło
+- **Tolerancja różnicy** (*Sezon → Zasady*, domyślnie 0): w żużlu typ i wynik prawie zawsze mają
+  sumę 90, a wtedy ta sama różnica = ten sam wynik, więc 3 pkt prawie się nie zdarzają (symulacja:
+  0% typów). Przy tolerancji 4 różnica typu może się różnić od różnicy meczu o 4 (np. 48:42 przy
+  46:44) — 3 pkt dostaje ok. 20% typów. Zmiana przelicza sezon. Decyzja należy do grupy.
 - **Złoty Kask:** w wyróżnionym meczu kolejki trafienie za 5 lub 3 pkt daje **+1**
 - **Joker:** raz w sezonie ×2 za jeden mecz (maks. 12 pkt)
-- **Typy sezonowe:** mistrz / brąz / spadek po **+10**, typowane przed pierwszym meczem
-- **Puchar Typerów:** pary według rankingu, wygrywa lepszy wynik w wyznaczonej kolejce
+- **Typy sezonowe:** mistrz / brąz / spadek po **+10** — trzy różne drużyny, typowane przed pierwszym meczem
+- **Ranking:** punkty → więcej dokładnych → więcej trafień różnicy; pełny remis = ex aequo
+- **Zwycięzca kolejki:** najwięcej punktów w kolejce, ostateczny po rozliczeniu całej kolejki
+- **Puchar Typerów:** pary według rankingu, wygrywa lepszy wynik w wyznaczonej kolejce; remis →
+  więcej dokładnych → mniejsza łączna pomyłka (suma |typ − wynik|, mecz bez typu = 90) → wyżej rozstawiony
+- **Mistrz Typera:** po zamknięciu sezonu przez admina; medal za podium wymaga punktów
 - **Blokada:** domyślnie **1 minuta przed pierwszym biegiem** (nowe sezony). Sezony z wersji 2
   zachowują swoje 24 h, dopóki admin tego nie zmieni.
 
@@ -98,7 +114,7 @@ Typuje się **wynik meczu** (np. 47:43). Punktacja i blokada są ustawiane per s
 | Mecz przełożony **po** blokadzie (deszcz w dniu meczu) | Typy były już jawne → przy zmianie daty zostają **zamrożone** automatycznie. Admin może je świadomie odmrozić. |
 | Przełożony, termin nieznany | *Mecze → Edytuj → „Przełożony, termin nieznany”*. Ustawione przed blokadą: typy zostają otwarte i ukryte, nawet gdy minie stara data. Ustawione po blokadzie: typy zamrożone. Mecz trafia na Pulpit do „ustal nowy termin”. |
 | Mecz przerwany po ≥ 8 biegach | Wpisz wynik zaliczony przez ligę (np. 40:38) i notatkę. Scraper i panel oznaczają sumę < 84 jako „do sprawdzenia”. |
-| Walkower | *Mecze → Edytuj → Walkower dla…* (40:0 albo 0:40): wynik liczy się do tabeli ligi, typy są anulowane, a Joker wraca do gracza. Można go cofnąć. |
+| Walkower | *Mecze → Edytuj → Walkower dla…* (40:0 albo 0:40): wynik liczy się do tabeli ligi, typy są anulowane, a Joker wraca do gracza. Można go cofnąć. Działa też po rozliczeniu (weryfikacja po proteście) — punkty za mecz znikają. |
 | Mecz odwołany na stałe | *Mecze → Edytuj → „Mecz odwołany — anuluj typy”*. |
 | Punkt bonusowy za dwumecz | Liczony automatycznie (suma małych punktów z obu meczów; remis = brak bonusu). |
 | Decyzje „przy zielonym stoliku” | *Sezon → Tabela → Korekty*: drużyna, punkty, powód. Korekta jest widoczna pod tabelą z opisem. |
@@ -119,7 +135,11 @@ Nie ma oficjalnego API, a portale zmieniają HTML. Dlatego scraper **nigdy nie w
    Rozbieżności między źródłami są wypisywane.
 5. Powstaje **draft**, a admin dostaje push. Na *Pulpicie* („Wyniki do zatwierdzenia”) widać wynik,
    fragment tekstu ze źródła i uwagi. „Zatwierdź” (można poprawić liczby) wpisuje wynik, przelicza
-   punkty i wysyła graczom push z ich punktami. Odrzucony wynik nie wraca.
+   punkty i wysyła graczom push z ich punktami. Odrzucony albo poprawiony odczyt nie wraca.
+   **„Zatwierdź wszystkie bez uwag”** bierze tylko wyniki bez blokad i bez ostrzeżeń — wynik
+   z uwagą (np. źródła podają różne liczby) zatwierdzasz pojedynczo.
+   Wiersz z wynikiem znanym z innego meczu tej samej pary (np. z rundy zasadniczej, gdy portal
+   pokazuje cały sezon, a drużyny grają w play-off) jest pomijany.
 6. Gdy żadne źródło nic nie zwróci (zmienił się układ strony), admin dostaje raz dziennie alert.
    Zawsze można wpisać wyniki ręcznie (*Mecze* albo „Mecze bez wyniku” na Pulpicie).
 
@@ -137,6 +157,35 @@ Nie ma oficjalnego API, a portale zmieniają HTML. Dlatego scraper **nigdy nie w
   meczów, raz na mecz. Gracz włącza je w swoim panelu. Na iPhonie działają po dodaniu do ekranu
   głównego (iOS 16.4+).
 - **Admin:** *System → Powiadamiaj ten telefon* — alert o nowych wynikach do zatwierdzenia.
+
+## Mistrz Typera i niespodzianka 🎁
+
+1. *Sezon → Sezony → Zakończenie sezonu i Mistrz Typera*: wpisz **nagrodę** (np. „kask z autografem”)
+   i **wiadomość** od organizatora, *Zapisz niespodziankę*. Panel pokazuje, kto byłby mistrzem,
+   gdyby zamknąć sezon teraz.
+2. Wskaż mistrza Polski, brąz i spadkowicza (trzy różne drużyny), włącz *Zamknij sezon i ogłoś
+   Mistrza Typera* i kliknij *Rozlicz typy sezonowe*.
+3. Mistrz dostaje push „Zostałeś Mistrzem Typera!”, a pozostali — o końcu sezonu (raz).
+   Na stronie głównej jest baner mistrza z konfetti i podium, w galerii mistrzów — nowy wpis.
+4. W **panelu mistrza** sama otwiera się **zdrapka**: zdrapuje kartę palcem i widzi nagrodę oraz
+   wiadomość (przycisk „Odkryj od razu” działa też bez dotyku). Admin widzi, że niespodzianka została
+   odebrana. Nagrody nie widzi nikt poza mistrzem — ani na stronie, ani cudzym linkiem.
+5. Mistrz i podium mogą pobrać **dyplom** (PNG; na telefonie od razu „Udostępnij”).
+   Przy pełnym remisie na szczycie jest dwóch mistrzów i obaj dostają niespodziankę.
+
+W trakcie sezonu zwycięzca kolejki widzi w swoim panelu baner „👑 Zwycięzca kolejki”, a profil
+gracza ma **osiągnięcia** (Snajper, Seria, As w rękawie, Złoty Kask, Rakieta, Lider, Mistrz Typera).
+
+## Symulacja ligi
+
+`npm run symulacja` przeprowadza cały sezon w prawdziwej aplikacji: 13 typerów o różnych stylach
+(ekspert, kibic Motoru, „zawsze 46:44”, spóźnialski, zapominalski, podglądacz cudzych typów…),
+mecze bieg po biegu, deszcz przed i po blokadzie, mecz przerwany, walkowery, korekta wyniku,
+scraper czytający fikcyjne portale (z literówkami i awarią), Puchar Typerów, play-off i zamknięcie
+sezonu z niespodzianką. Po każdej kolejce **niezależnie** przelicza punkty, ranking, tabelę i puchar
+(15 niezmienników, ok. 50 tys. sprawdzeń). Monte Carlo (2000 sezonów) sprawdza zasady: czy wygrywa
+umiejętność, jak często regulamin rozstrzyga remisy, ile znaczą Joker, Kask i typy sezonowe.
+Symulacja działa też w CI (raport do pobrania). Wyniki i wnioski: **[SYMULACJA.md](SYMULACJA.md)**.
 
 ## Statystyki graczy
 
@@ -158,8 +207,8 @@ operacja pyta o potwierdzenie.
 | **Pulpit** | „Do zrobienia”: wyniki ze scrapera do zatwierdzenia (z poprawką liczb), mecze bez wyniku (wpisujesz od razu), przełożone bez terminu („Ustal termin”), kto nie wytypował meczów z najbliższych 48 h (przycisk „Kopiuj przypomnienie” na grupę), stan systemu. Licznik spraw jest na ikonie Pulpitu. |
 | **Mecze** | Kolejka po kolejce. Wynik wpisujesz na karcie meczu — pojawia się pasek „Zapisz wyniki” (z ostrzeżeniem przy sumie > 90 albo meczu z przyszłości). „Typy” pod meczem: typy wszystkich graczy, możesz wpisać typ za gracza (SMS). „Edytuj”: termin, przełożenie, Złoty Kask, zamrożenie, walkower, anulowanie typów, notatka, kolejka, usunięcie. |
 | **Gracze** | Wyszukiwarka i filtry (w sezonie / wszyscy / wstrzymani). Karta gracza: link (kopiuj, WhatsApp, **nowy link = reset hasła**), konto aktywne/wstrzymane, udział w sezonie, zmiana pseudonimu (typy i punkty się przenoszą), typy gracza i typy sezonowe, test powiadomienia, usuwanie. |
-| **Puchar** | Drabinka, rozstawienie według rankingu, para ręcznie, przeliczenie z kolejek. |
-| **Sezon** | *Zasady* (blokada w minutach z szybkim wyborem, punktacja z przeliczeniem), *Tabela* (korekty z powodem + podgląd), *Wyniki auto* (źródła i inne nazwy drużyn dla scrapera, dziennik pobrań), *Sezony* (lista, nowy sezon, generator terminarza, import JSON, zakończenie sezonu). |
+| **Puchar** | Drabinka ze zwycięzcami i sposobem rozstrzygnięcia remisu, rozstawienie według rankingu, para ręcznie (gracz 1 = wyżej rozstawiony), przeliczenie z kolejek. |
+| **Sezon** | *Zasady* (blokada w minutach z szybkim wyborem, punktacja i tolerancja różnicy z przeliczeniem), *Tabela* (korekty z powodem + podgląd), *Wyniki auto* (źródła i inne nazwy drużyn dla scrapera, dziennik pobrań), *Sezony* (lista, nowy sezon, generator terminarza, import JSON, zakończenie sezonu i Mistrz Typera z niespodzianką). |
 | **System** | Powiadomienia (ten telefon, test, przypomnienia teraz), dziennik zadań w tle, kopia zapasowa i przywracanie, narzędzia, strefa ryzyka. |
 
 Gdy edytujesz sezon inny niż aktywny (albo zakończony), na górze jest wyraźne ostrzeżenie.
@@ -229,10 +278,12 @@ services/scraper.js       pobieranie wyników, dopasowanie drużyn, kontrola sen
 services/push.js          Web Push (VAPID), deduplikacja powiadomień
 services/jobs.js          scraper + przypomnienia, harmonogram
 services/cache.js         cache odczytów
+services/names.js         krótkie nazwy drużyn do powiadomień (ta sama reguła co w przeglądarce)
 routes/                   API publiczne, admina i wyzwalacz cron
 public/                   index (strona główna), typuj (panel gracza), gracz (profil), admin, sw.js
 src/app.css               źródło Tailwind (tokeny kolorów, jasny/ciemny motyw)
-scripts/                  demo bez bazy (też dane do testów E2E), generator ikon
+scripts/                  demo bez bazy (też dane do testów E2E), generator ikon, symulacja ligi
+scripts/sim/              silnik meczu bieg po biegu, typerzy, sezon przez API, Monte Carlo, raport
 test/                     scoring (jednostkowe), api + scenarios (integracyjne na atrapie bazy), e2e (przeglądarka)
 .github/workflows/        testy + cron budzący Render
 ```

@@ -1,14 +1,16 @@
 # Raport z testów — Żużlowy Typer 3
 
-Stan na 2 października 2026. Wszystkie testy przechodzą: **175 automatycznych + 43 w przeglądarce** (pakiet E2E
-uruchomiony dwa razy z rzędu, bez niestabilnych wyników).
+Stan na 28 października 2026. Wszystkie testy przechodzą: **196 automatycznych + 48 w przeglądarce** (pakiet E2E
+uruchomiony dwa razy z rzędu, bez niestabilnych wyników) + **symulacja całego sezonu** (15 niezmienników,
+51 487 sprawdzeń, 0 błędów) i Monte Carlo zasad (2000 sezonów) — szczegóły w [SYMULACJA.md](SYMULACJA.md).
 
 | Pakiet | Plik | Liczba | Uruchomienie |
 |---|---|---|---|
-| Punktacja, tabela, statystyki, parser scrapera | `test/scoring.test.js` | 55 | `npm test` |
+| Punktacja, regulamin, tabela, statystyki, parser scrapera | `test/scoring.test.js` | 63 | `npm test` |
 | API (blokady, joker, admin) | `test/api.test.js` | 46 | `npm test` |
-| Scenariusze z życia typera (cała aplikacja) | `test/scenarios.test.js` | 74 | `npm test` |
-| Przeglądarka: strona, panel gracza, PWA, panel admina | `test/e2e.test.js` | 43 | `npm run test:e2e` |
+| Scenariusze z życia typera (cała aplikacja) | `test/scenarios.test.js` | 87 | `npm test` |
+| Przeglądarka: strona, panel gracza, PWA, panel admina, Mistrz Typera | `test/e2e.test.js` | 48 | `npm run test:e2e` |
+| Cały sezon przez API + Monte Carlo zasad | `scripts/symulacja.js` | 15 niezmienników | `npm run symulacja` |
 
 Scenariusze API przechodzą także przy serwerze w strefach UTC, America/New_York i Asia/Tokyo.
 
@@ -41,6 +43,24 @@ potrzebujący, bez powtórek), push z punktami (raz), usuwanie martwych subskryp
 (raz dziennie); kopia zapasowa → przywrócenie, cron z sekretem, limit prób logowania, manifest PWA,
 wersjonowanie plików, świeża instalacja i migracja z v1, konfiguracja buildu na Render.
 
+**Regulamin = działanie aplikacji:** każde zdanie regulaminu na stronie ma test: przykład punktacji, remis
+w rankingu (dokładne → różnica → ex aequo), zwycięzca kolejki ostateczny po całej kolejce, puchar liczony
+na bieżąco (korekta wyniku zmienia drabinkę), remis w pucharze (dokładne → mniejsza pomyłka → rozstawienie),
+trzy różne drużyny w typach sezonowych (gracz, admin, wyniki sezonu), czas przypomnień, tolerancja różnicy.
+
+**Koniec sezonu i Mistrz Typera:** brak mistrza w trakcie sezonu, niespodzianka niewidoczna na stronie
+i dla innych graczy, push do mistrza i do reszty (raz, także po ponownym zamknięciu), podium i medale
+(bez medalu za 0 pkt), odkrycie tylko przez mistrza (zapisane dla admina), dwóch mistrzów ex aequo,
+ponowne otwarcie sezonu chowa mistrza, galeria mistrzów; w przeglądarce: baner z konfetti, zdrapka,
+„Odkryj od razu”, dyplom do pobrania, baner wygranej kolejki, blokada powtórzonej drużyny w typach
+sezonowych, osiągnięcia w profilu.
+
+**Symulacja ligi:** 13 typerów przez cały sezon (typy jak z telefonu, spóźnione po blokadzie, poprawiane,
+czyszczone, Joker przenoszony i zablokowany, typ SMS-em wpisany przez admina, wstrzymane konto), deszcz
+przed i po blokadzie, termin nieznany, mecz przerwany po 11 i po 7 biegach, walkower i walkower po
+proteście, korekta wyniku, scraper na dwóch portalach (literówka, różne wyniki, awaria, opóźnienie, wynik
+na żywo), puchar, play-off, zamknięcie sezonu z niespodzianką. Po każdej kolejce niezależne przeliczenie.
+
 **W przeglądarce (telefon Pixel 5 i ekran 1280 px):** brak błędów JS i poziomego przewijania na wszystkich
 stronach i widokach admina, nawigacja i „wstecz”, profil z wykresami i podpowiedziami, autozapis
 i autoprzeskok pól, joker, blokada w trakcie oglądania, dwa telefony jednego gracza, brak sieci i powrót,
@@ -71,8 +91,19 @@ wyniki, potwierdzenia, typ za gracza, przełożenia, walkower, gracze, sezon, pu
 | 18 | Panel admina: komunikat przed odświeżeniem danych | wpisywane pole mogło zostać nadpisane | komunikat po odświeżeniu + pasek postępu |
 | 19 | Panel admina: pseudonim z apostrofem | psuł przyciski (onclick) | obsługa zdarzeń bez danych w kodzie |
 | 20 | Domyślne sloty generatora (bez podanych godzin) | mecze w poniedziałek i środę | piątek i niedziela |
+| 21 | Równe punkty w rankingu — brak reguły | kolejność „przypadkowa”, regulamin milczał | dokładne → różnica, ex aequo tylko przy pełnym remisie |
+| 22 | Puchar liczony tylko przyciskiem „Przelicz” | po korekcie wyniku drabinka pokazywała stare punkty | wynik pucharu liczony na bieżąco z typów |
+| 23 | Remis w pucharze nieopisany | nie wiadomo, kto przechodzi dalej | dokładne → mniejsza łączna pomyłka → wyżej rozstawiony |
+| 24 | Typy sezonowe: ta sama drużyna jako mistrz i brąz | „pewne” punkty wbrew regulaminowi | odrzucane (gracz, admin i wyniki sezonu) |
+| 25 | „Zatwierdź wszystkie bez uwag” brało też wyniki z ostrzeżeniem *(symulacja)* | **wpisywał się błędny wynik**, gdy źródła się różniły | tylko wyniki bez blokad i ostrzeżeń |
+| 26 | Play-off: wiersz z wynikiem z rundy zasadniczej *(symulacja)* | **stary wynik przypisany nowemu meczowi** | wiersz ze znanym wynikiem tej pary pomijany |
+| 27 | Poprawiony odczyt scrapera wracał *(symulacja)* | ta sama literówka do zatwierdzenia co godzinę przez 2 tygodnie | zapamiętany odczyt ze źródła |
+| 28 | Push skracał nazwy inaczej niż strona *(symulacja)* | „Deweloperska Toruń” | wspólna reguła, test pilnuje zgodności |
+| 29 | „Ex aequo z X” przy równych punktach, choć X jest wyżej przez dokładne | mylący napis w panelu gracza | „tyle samo punktów — wyżej przez dokładne” |
+| 30 | Kategoria 3 pkt w żużlu prawie nie występuje *(Monte Carlo)* | środkowy próg punktacji martwy (0% typów) | opcjonalna tolerancja różnicy (domyślnie bez zmian) |
 
-Każda poprawka ma test, który bez niej nie przechodzi. Błąd nr 1 odtworzyłem dodatkowo prawdziwym
+Błędy 25–28 znalazła symulacja całego sezonu (przy pierwszym uruchomieniu 9 wyników wpisanych niezgodnie
+z oficjalnym protokołem), a 23 i 30 — Monte Carlo zasad. Każda poprawka ma test, który bez niej nie przechodzi. Błąd nr 1 odtworzyłem dodatkowo prawdziwym
 `npm ci` z `NODE_ENV=production` (build kończył się `tailwindcss: not found`), a nr 4 — w przeglądarce
 przed poprawką (wpisana cyfra rzeczywiście znikała).
 

@@ -1,6 +1,6 @@
 # Symulacja ligi — Żużlowy Typer
 
-Wygenerowano poleceniem `npm run symulacja` (seed 2027). Cały sezon trwał w symulacji 6.7 s, Monte Carlo 2000 sezonów — 8.2 s.
+Wygenerowano poleceniem `npm run symulacja` (seed 2027). Cały sezon trwał w symulacji 7.1 s, Monte Carlo 2000 sezonów — 8.4 s.
 
 **Jak to działa.** Symulacja uruchamia prawdziwą aplikację (`server.js`, wszystkie trasy API) na bazie w pamięci i przesuwa zegar serwera. Typerzy wysyłają typy tak jak telefon (`/api/public/submit-all`), admin zatwierdza wyniki ze scrapera, przekłada mecze po deszczu, wpisuje walkowery, rozstawia Puchar Typerów, dodaje play-off i zamyka sezon. Wyniki meczów powstają bieg po biegu (15 biegów, 3-2-1-0, upadki i defekty), a scraper czyta je z dwóch fikcyjnych portali (tabela całego sezonu i lista ostatnich wyników — z literówkami, opóźnieniami i awarią). Po każdej kolejce symulacja **niezależnie** przelicza punkty, ranking, tabelę i puchar i porównuje je z tym, co pokazuje API.
 
