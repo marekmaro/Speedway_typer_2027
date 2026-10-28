@@ -11,6 +11,11 @@ blokady, kaski-awatary graczy, podium rankingu i pojedynki pucharowe „czerwony
 Zwycięzca sezonu zostaje **Mistrzem Typera**: konfetti, zdrapka z niespodzianką od organizatora
 i dyplom do pobrania (więcej niżej). Cały sezon jest sprawdzony **symulacją ligi** (`SYMULACJA.md`).
 
+Strona główna otwiera się na zakładce **Start** (powitanie — po imieniu, gdy telefon zna link gracza —
+bieżąca kolejka, czołówka, ostatnie wyniki, sezon w liczbach). **Zasady gry** mają osobną stronę
+`/zasady` (też `/regulamin`): jak zacząć, punktacja z przykładami, Joker, puchar, deszcz, walkowery
+i najczęstsze pytania — generowane z ustawień sezonu. Ten adres możesz wysłać nowemu graczowi.
+
 **Stos:** Node.js 22 + Express · MongoDB (Mongoose) · HTML + vanilla JS + Tailwind CSS (budowany) ·
 cheerio (scraper) · web-push (VAPID) · hosting Render + MongoDB Atlas.
 
@@ -55,7 +60,7 @@ Kontrola stanu: `GET /healthz` (baza, push, wersja plików).
 
 ### Testy w przeglądarce (opcjonalnie)
 
-48 testów E2E klika aplikację w prawdziwym Chromium (widok telefonu i komputera): typowanie,
+50 testów E2E klika aplikację w prawdziwym Chromium (widok telefonu i komputera): typowanie,
 autozapis, joker, blokadę w trakcie, dwa telefony jednego gracza, brak sieci, źle ustawiony zegar,
 PWA offline, cały panel admina oraz koniec sezonu (baner mistrza, zdrapka, dyplom). Wymagają Playwrighta, którego nie ma w zależnościach (żeby nie
 spowalniał deployu):
@@ -84,6 +89,14 @@ npm run test:e2e
    (bez usypiania, wtedy wystarczy wbudowany harmonogram).
 
 Wszystkie zmienne opisuje `.env.example`.
+
+> **Wgrywasz pliki przez stronę GitHuba („Add files via upload”)?** Pliki i katalogi zaczynające
+> się od kropki nie przechodzą — w repozytorium brakuje wtedy `.github/workflows/cron.yml`
+> (budzenie serwera i zadania w tle), `.gitignore` i `.env.example`. Workflow dodasz ręcznie:
+> *Add file → Create new file*, nazwa `.github/workflows/cron.yml`, wklej zawartość pliku z paczki.
+> Nigdy nie wgrywaj pliku `.env` ani katalogu `node_modules`.
+> Zamiast GitHub Actions możesz użyć cron-job.org: co 30 min `POST https://TWOJ-ADRES.onrender.com/api/cron/run?job=all`
+> z nagłówkiem `x-cron-secret: <CRON_SECRET>` (albo parametrem `&key=<CRON_SECRET>`).
 
 ## Zasady gry
 
@@ -280,7 +293,7 @@ services/jobs.js          scraper + przypomnienia, harmonogram
 services/cache.js         cache odczytów
 services/names.js         krótkie nazwy drużyn do powiadomień (ta sama reguła co w przeglądarce)
 routes/                   API publiczne, admina i wyzwalacz cron
-public/                   index (strona główna), typuj (panel gracza), gracz (profil), admin, sw.js
+public/                   index (strona główna), zasady (regulamin), typuj (panel gracza), gracz (profil), admin, sw.js
 src/app.css               źródło Tailwind (tokeny kolorów, jasny/ciemny motyw)
 scripts/                  demo bez bazy (też dane do testów E2E), generator ikon, symulacja ligi
 scripts/sim/              silnik meczu bieg po biegu, typerzy, sezon przez API, Monte Carlo, raport

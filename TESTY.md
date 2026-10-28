@@ -1,6 +1,6 @@
 # Raport z testów — Żużlowy Typer 3
 
-Stan na 28 października 2026. Wszystkie testy przechodzą: **196 automatycznych + 48 w przeglądarce** (pakiet E2E
+Stan na 28 października 2026. Wszystkie testy przechodzą: **196 automatycznych + 50 w przeglądarce** (pakiet E2E
 uruchomiony dwa razy z rzędu, bez niestabilnych wyników) + **symulacja całego sezonu** (15 niezmienników,
 51 487 sprawdzeń, 0 błędów) i Monte Carlo zasad (2000 sezonów) — szczegóły w [SYMULACJA.md](SYMULACJA.md).
 
@@ -9,7 +9,7 @@ uruchomiony dwa razy z rzędu, bez niestabilnych wyników) + **symulacja całego
 | Punktacja, regulamin, tabela, statystyki, parser scrapera | `test/scoring.test.js` | 63 | `npm test` |
 | API (blokady, joker, admin) | `test/api.test.js` | 46 | `npm test` |
 | Scenariusze z życia typera (cała aplikacja) | `test/scenarios.test.js` | 87 | `npm test` |
-| Przeglądarka: strona, panel gracza, PWA, panel admina, Mistrz Typera | `test/e2e.test.js` | 48 | `npm run test:e2e` |
+| Przeglądarka: strona (Start, zakładki, zasady), panel gracza, PWA, panel admina, Mistrz Typera | `test/e2e.test.js` | 50 | `npm run test:e2e` |
 | Cały sezon przez API + Monte Carlo zasad | `scripts/symulacja.js` | 15 niezmienników | `npm run symulacja` |
 
 Scenariusze API przechodzą także przy serwerze w strefach UTC, America/New_York i Asia/Tokyo.
