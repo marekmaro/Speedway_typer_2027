@@ -15,11 +15,16 @@ require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: d
 const express = require('express');
 const publicRoutes = require('../routes/publicRoutes');
 const adminRoutes = require('../routes/adminRoutes');
+const cronRoutes = require('../routes/cronRoutes');
+const jobs = require('../services/jobs');
+const push = require('../services/push');
+const cache = require('../services/cache');
 
 const app = express();
 app.use(express.json());
 app.use('/api/public', publicRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/cron', cronRoutes);
 
 const HOUR = 3600 * 1000;
 const DAY = 24 * HOUR;
@@ -32,8 +37,8 @@ async function test(name, fn) {
 }
 
 let base;
-const get = async (url) => {
-    const res = await fetch(base + url);
+const get = async (url, headers = {}) => {
+    const res = await fetch(base + url, { headers });
     return { status: res.status, body: await res.json().catch(() => ({})) };
 };
 const post = async (url, body, headers = {}) => {
@@ -297,6 +302,175 @@ async function seed() {
         const p = await db.Prediction.findOne({ nickname: 'Bob', matchId: String(ids.locked._id) });
         assert.strictEqual(p.homePred, 45);
         assert.strictEqual(p.source, 'admin');
+    });
+
+    console.log('\nPrzełożenia, walkowery, blokady (v3):');
+
+    await test('przełożenie PRZED blokadą: typy zostają i można je zmieniać', async () => {
+        const m = await db.Match.create({ season: 2027, round: 9, homeTeam: 'Team A', awayTeam: 'Team D', matchDate: inHours(72) });
+        await db.Prediction.create({ season: 2027, nickname: 'Ala', matchId: String(m._id), homePred: 50, awayPred: 40 });
+        const { status } = await post('/api/admin/match-edit', { matchId: String(m._id), matchDate: inHours(240).toISOString() }, auth());
+        assert.strictEqual(status, 200);
+        const after = await db.Match.findById(String(m._id));
+        assert.strictEqual(after.predictionsFrozen, false);
+        assert.ok(after.originalDate, 'pierwotna data zapamiętana');
+        assert.strictEqual((await db.Prediction.findOne({ matchId: String(m._id), nickname: 'Ala' })).homePred, 50);
+        const { body } = await post('/api/public/submit-all', { token: 'tok-ala', predictions: [{ matchId: String(m._id), homePred: 41, awayPred: 49 }] });
+        assert.strictEqual(body.saved, 1);
+    });
+
+    await test('przełożenie PO blokadzie (deszcz): typy zamrożone mimo nowej daty', async () => {
+        const m = await db.Match.create({ season: 2027, round: 9, homeTeam: 'Team B', awayTeam: 'Team C', matchDate: inHours(1) });
+        await db.Prediction.create({ season: 2027, nickname: 'Bob', matchId: String(m._id), homePred: 46, awayPred: 44 });
+        await post('/api/admin/match-edit', { matchId: String(m._id), matchDate: inHours(24 * 7).toISOString() }, auth());
+        assert.strictEqual((await db.Match.findById(String(m._id))).predictionsFrozen, true);
+        const { body } = await post('/api/public/submit-all', { token: 'tok-bob', predictions: [{ matchId: String(m._id), homePred: 30, awayPred: 60 }] });
+        assert.strictEqual(body.saved, 0);
+        assert.strictEqual((await db.Prediction.findOne({ matchId: String(m._id), nickname: 'Bob' })).homePred, 46);
+        // typy dalej są jawne na stronie głównej
+        cache.invalidate();
+        const { body: data } = await get('/api/public/data');
+        const p = data.predictions.find(x => x.matchId === String(m._id) && x.nickname === 'Bob');
+        assert.strictEqual(p.hidden, false);
+    });
+
+    await test('walkower: tabela liczy wynik, typy anulowane, joker wraca', async () => {
+        const m = await db.Match.create({ season: 2027, round: 10, homeTeam: 'Team C', awayTeam: 'Team B', matchDate: inHours(-3) });
+        await db.Prediction.create({ season: 2027, nickname: 'Cyk', matchId: String(m._id), homePred: 50, awayPred: 40, usedJoker: true });
+        const { status } = await post('/api/admin/result', { matchId: String(m._id), homeScore: 40, awayScore: 0, walkover: true }, auth());
+        assert.strictEqual(status, 200);
+        const p = await db.Prediction.findOne({ matchId: String(m._id), nickname: 'Cyk' });
+        assert.strictEqual(p.pointsEarned, null);
+        const { body } = await get('/api/public/data');
+        const cyk = body.ranking.find(r => r.nickname === 'Cyk');
+        assert.ok(!cyk || cyk.jokerUsed === false, 'joker z walkowera nie przepada');
+    });
+
+    await test('wstrzymany gracz nie może typować', async () => {
+        await post('/api/admin/player/toggle', { nickname: 'Bob' }, auth());
+        const { status } = await post('/api/public/submit-all', { token: 'tok-bob', predictions: [{ matchId: String(ids.open1._id), homePred: 45, awayPred: 45 }] });
+        assert.strictEqual(status, 403);
+        await post('/api/admin/player/toggle', { nickname: 'Bob' }, auth());
+    });
+
+    await test('blokada w minutach: ustawienie 1 min otwiera mecz startujący za 2 h', async () => {
+        await post('/api/admin/season/settings', { season: 2027, lockMinutes: 1 }, auth());
+        const { body } = await post('/api/public/submit-all', { token: 'tok-ala', predictions: [{ matchId: String(ids.locked._id), homePred: 44, awayPred: 46 }] });
+        assert.strictEqual(body.saved, 1);
+        await post('/api/admin/season/settings', { season: 2027, lockMinutes: 1440 }, auth());
+    });
+
+    console.log('\nScraper i zatwierdzanie (v3):');
+    const seasonDoc = await db.Season.findOne({ year: 2027 });
+    seasonDoc.teamAliases = { 'Team A': ['Alfa'], 'Team B': ['Beta'], 'Team C': ['Cecha'], 'Team D': ['Delta'] };
+    const scr = await db.Match.create({ season: 2027, round: 11, homeTeam: 'Team D', awayTeam: 'Team A', matchDate: inHours(-4) });
+    await db.Prediction.create({ season: 2027, nickname: 'Ala', matchId: String(scr._id), homePred: 47, awayPred: 43 });
+    const fakePage = '<table><tr><td>Delta</td><td>47 : 43</td><td>Alfa</td></tr><tr><td>Alfa</td><td>start 20:30</td><td>Beta</td></tr></table>';
+
+    await test('scraper tworzy draft, ale NIE wpisuje wyniku', async () => {
+        const out = await jobs.scrapeJob({ season: seasonDoc, urls: ['https://example.test/wyniki'], fetchHtml: async () => fakePage });
+        assert.strictEqual(out.created, 1, out.summary);
+        assert.strictEqual((await db.Match.findById(String(scr._id))).homeScore, null);
+        const { body } = await get('/api/admin/drafts', auth());
+        assert.strictEqual(body.length, 1);
+        assert.strictEqual(body[0].match.homeTeam, 'Team D');
+    });
+
+    await test('ponowne pobranie nie dubluje draftu', async () => {
+        const out = await jobs.scrapeJob({ season: seasonDoc, urls: ['https://example.test/wyniki'], fetchHtml: async () => fakePage });
+        assert.strictEqual(out.created, 0);
+        assert.strictEqual((await db.ResultDraft.find({ status: 'draft' })).length, 1);
+    });
+
+    await test('zatwierdzenie draftu wpisuje wynik i przelicza punkty', async () => {
+        const draft = await db.ResultDraft.findOne({ status: 'draft' });
+        const { status } = await post('/api/admin/drafts/approve', { id: String(draft._id), notify: false }, auth());
+        assert.strictEqual(status, 200);
+        const m = await db.Match.findById(String(scr._id));
+        assert.strictEqual(m.homeScore, 47);
+        assert.strictEqual(m.resultSource, 'scraper');
+        assert.strictEqual((await db.Prediction.findOne({ matchId: String(scr._id), nickname: 'Ala' })).pointsEarned, 5);
+    });
+
+    await test('niemożliwy wynik (suma > 90) wymaga korekty przed zatwierdzeniem', async () => {
+        const m = await db.Match.create({ season: 2027, round: 11, homeTeam: 'Team B', awayTeam: 'Team C', matchDate: inHours(-4) });
+        await jobs.scrapeJob({ season: seasonDoc, urls: ['https://example.test/x'], fetchHtml: async () => '<p>Beta 60:40 Cecha</p>' });
+        const draft = await db.ResultDraft.findOne({ matchId: String(m._id), status: 'draft' });
+        assert.ok(draft.blockers.length);
+        const r1 = await post('/api/admin/drafts/approve', { id: String(draft._id) }, auth());
+        assert.strictEqual(r1.status, 409);
+        const r2 = await post('/api/admin/drafts/approve', { id: String(draft._id), homeScore: 50, awayScore: 40, notify: false }, auth());
+        assert.strictEqual(r2.status, 200);
+        assert.strictEqual((await db.Match.findById(String(m._id))).homeScore, 50);
+    });
+
+    await test('odrzucony wynik nie wraca przy kolejnym pobraniu', async () => {
+        const m = await db.Match.create({ season: 2027, round: 12, homeTeam: 'Team C', awayTeam: 'Team A', matchDate: inHours(-5) });
+        const page = '<p>Cecha 46:44 Alfa</p>';
+        await jobs.scrapeJob({ season: seasonDoc, urls: ['https://example.test/y'], fetchHtml: async () => page });
+        const d = await db.ResultDraft.findOne({ matchId: String(m._id), status: 'draft' });
+        await post('/api/admin/drafts/reject', { id: String(d._id) }, auth());
+        await jobs.scrapeJob({ season: seasonDoc, urls: ['https://example.test/y'], fetchHtml: async () => page });
+        assert.strictEqual((await db.ResultDraft.find({ matchId: String(m._id), status: 'draft' })).length, 0);
+    });
+
+    await test('wyzwalacz cron wymaga sekretu', async () => {
+        process.env.CRON_SECRET = 'sekret-cron-123';
+        const bad = await post('/api/cron/run?job=reminders', {}, { 'x-cron-secret': 'zly' });
+        assert.strictEqual(bad.status, 401);
+        const ok = await post('/api/cron/run?job=reminders', {}, { 'x-cron-secret': 'sekret-cron-123' });
+        assert.strictEqual(ok.status, 200);
+    });
+
+    console.log('\nPowiadomienia push (v3):');
+    const sent = [];
+    push._setSenderForTests(async (sub, body) => { sent.push({ endpoint: sub.endpoint, body: JSON.parse(body) }); });
+
+    await test('gracz zapisuje subskrypcję tylko ze swoim tokenem', async () => {
+        const sub = { endpoint: 'https://push.example/ala', keys: { p256dh: 'k', auth: 'a' } };
+        assert.strictEqual((await post('/api/public/push/subscribe', { token: 'zly', subscription: sub })).status, 403);
+        assert.strictEqual((await post('/api/public/push/subscribe', { token: 'tok-ala', subscription: sub })).status, 200);
+        assert.strictEqual((await db.PushSubscription.findOne({ endpoint: sub.endpoint })).nickname, 'Ala');
+    });
+
+    await test('przypomnienie idzie do gracza bez typu i tylko raz', async () => {
+        // blokada 24 h -> mecz za 25 h ma blokadę za ~60 min (w oknie 120 min)
+        const m = await db.Match.create({ season: 2027, round: 13, homeTeam: 'Team A', awayTeam: 'Team B', matchDate: inHours(25) });
+        sent.length = 0;
+        await jobs.reminderJob();
+        const toAla = sent.filter(x => x.endpoint === 'https://push.example/ala');
+        assert.strictEqual(toAla.length, 1);
+        assert.ok(/Team B/.test(toAla[0].body.body));
+        assert.ok(toAla[0].body.url.includes('tok-ala'));
+        sent.length = 0;
+        await jobs.reminderJob();
+        assert.strictEqual(sent.length, 0, 'drugi raz nie wysyłamy');
+        await db.Match.deleteOne({ _id: m._id });
+    });
+
+    console.log('\nStatystyki (v3):');
+
+    await test('profil gracza: przebieg sezonu i tylko jawne typy', async () => {
+        cache.invalidate();
+        const { status, body } = await get('/api/public/profile?nickname=Ala');
+        assert.strictEqual(status, 200);
+        assert.ok(body.progress.length > 0);
+        assert.ok(body.progress.every(p => typeof p.total === 'number' && p.position >= 1));
+        const open = body.history.find(h => h.matchId === String(ids.open2._id));
+        assert.strictEqual(open, undefined, 'typ na otwarty mecz nie może wyciec przez profil');
+    });
+
+    await test('H2H dwóch graczy', async () => {
+        const { status, body } = await get('/api/public/h2h?a=Ala&b=Bob');
+        assert.strictEqual(status, 200);
+        assert.strictEqual(body.a, 'Ala');
+        assert.strictEqual(body.matches, body.rows.length);
+    });
+
+    await test('ranking wszech czasów', async () => {
+        const { status, body } = await get('/api/public/alltime');
+        assert.strictEqual(status, 200);
+        assert.ok(body.ranking.find(r => r.nickname === 'Ala'));
     });
 
     await test('nowy sezon powstaje obok bieżącego', async () => {

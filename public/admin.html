@@ -2,302 +2,89 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel administratora - Typer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Panel admina — Żużlowy Typer</title>
     <meta name="robots" content="noindex">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="style.css">
-    <style>
-        body { background-image: none; background-color: #fef2f2; }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        .card { background: #fff; border-radius: .75rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); padding: 1.25rem; }
-        .lbl { font-size: 10px; text-transform: uppercase; font-weight: 700; color: #6b7280; display: block; margin-bottom: 2px; }
-        .inp { width: 100%; padding: .5rem; border: 1px solid #d1d5db; border-radius: .375rem; font-size: .875rem; background: #f9fafb; }
-        .btn { padding: .6rem 1rem; border-radius: .5rem; font-weight: 700; font-size: .8rem; color: #fff; }
-    </style>
+    <meta name="theme-color" content="#0a0f1c">
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="stylesheet" href="/css/app.css?v=__V__">
 </head>
-<body class="font-sans pb-16">
+<body class="pb-24 lg:pb-10">
+    <div id="busybar" class="fixed top-0 inset-x-0 h-1 z-[120] bg-brand/80 animate-pulse" aria-hidden="true"></div>
 
-    <!-- LOGOWANIE -->
-    <div id="login-modal" class="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
-        <div class="bg-white p-8 rounded-xl shadow-xl text-center w-full max-w-sm">
-            <h2 class="text-2xl font-bold text-red-600 mb-1">Panel administratora</h2>
-            <p class="text-xs text-gray-500 mb-4">Hasło jest sprawdzane na serwerze, sesja wygasa po 8 h.</p>
-            <input type="password" id="admin-pass-input" placeholder="Hasło" autocomplete="current-password"
-                   class="border-2 border-red-200 p-2 rounded mb-3 w-full text-center" onkeydown="if(event.key==='Enter')loginAdmin()">
-            <button onclick="loginAdmin()" class="btn bg-red-600 hover:bg-red-700 w-full">Zaloguj</button>
-            <p id="login-error" class="text-xs text-red-600 font-bold mt-3"></p>
-        </div>
+    <!-- ===== LOGOWANIE ===== -->
+    <div id="login-modal" class="hero fixed inset-0 flex items-center justify-center z-[100] p-4">
+        <svg class="hero-track" viewBox="0 0 360 220" fill="none" aria-hidden="true" style="right:auto;left:50%;transform:translateX(-50%);bottom:-40px;width:560px;height:340px">
+            <ellipse cx="180" cy="110" rx="170" ry="96" stroke="white" stroke-width="22"/>
+            <ellipse cx="180" cy="110" rx="128" ry="58" stroke="white" stroke-width="2" stroke-dasharray="6 8"/>
+        </svg>
+        <form class="card w-full max-w-sm text-center text-ink overflow-hidden" onsubmit="event.preventDefault(); loginAdmin()">
+            <div class="gate-stripe"></div>
+            <div class="card-pad">
+                <img src="/icons/icon.svg" alt="" class="w-14 h-14 rounded-2xl mx-auto mb-3 shadow-lift">
+                <h1 class="display text-2xl">Wieża sędziowska</h1>
+                <p class="text-xs text-muted mb-4 mt-1">Panel administratora · hasło sprawdza serwer, sesja wygasa po 8 h bezczynności.</p>
+                <label for="admin-pass-input" class="sr-only">Hasło</label>
+                <input type="password" id="admin-pass-input" placeholder="Hasło" autocomplete="current-password" class="input text-center mb-3">
+                <button class="btn-primary w-full font-black italic uppercase">Wjazd na tor</button>
+                <p id="login-error" class="text-sm text-bad font-bold mt-3" role="alert"></p>
+                <a href="/" class="inline-block mt-4 text-xs font-bold text-muted">← Strona typera</a>
+            </div>
+        </form>
     </div>
 
-    <div id="dashboard" class="container mx-auto p-3 md:p-4 max-w-7xl hidden">
-        <header class="bg-red-800 text-white p-5 rounded-xl shadow-lg mb-5 flex flex-col md:flex-row justify-between items-center gap-3">
-            <div>
-                <h1 class="text-2xl md:text-3xl font-extrabold uppercase tracking-wide">Centrum dowodzenia</h1>
-                <p class="text-xs mt-1 text-red-200">Sezon w edycji:
-                    <select id="season-picker" class="bg-red-900 border border-red-500 rounded px-2 py-0.5 text-white font-bold ml-1"></select>
-                </p>
-            </div>
-            <div class="flex gap-2">
-                <a href="/" class="bg-black/40 px-3 py-2 rounded text-xs hover:bg-black/60">Strona główna</a>
-                <button onclick="logoutAdmin()" class="bg-black/40 px-3 py-2 rounded text-xs hover:bg-black/60">Wyloguj</button>
-            </div>
-        </header>
+    <div id="dashboard" class="hidden lg:flex lg:min-h-screen">
 
-        <div class="flex flex-wrap gap-2 mb-5 border-b border-gray-300 pb-2">
-            <button data-tab="tab-results" class="atab btn bg-red-700">1. Wyniki</button>
-            <button data-tab="tab-matches" class="atab btn bg-gray-300 !text-gray-700">2. Terminarz</button>
-            <button data-tab="tab-players" class="atab btn bg-gray-300 !text-gray-700">3. Gracze i linki</button>
-            <button data-tab="tab-tips" class="atab btn bg-gray-300 !text-gray-700">4. Typy graczy</button>
-            <button data-tab="tab-cup" class="atab btn bg-gray-300 !text-gray-700">5. Puchar</button>
-            <button data-tab="tab-season" class="atab btn bg-gray-300 !text-gray-700">6. Sezony</button>
-            <button data-tab="tab-system" class="atab btn bg-gray-300 !text-gray-700">7. System</button>
-        </div>
+        <!-- ===== MENU BOCZNE (komputer) ===== -->
+        <aside class="hero hidden lg:flex lg:flex-col w-64 shrink-0 px-3 py-4 sticky top-0 h-screen">
+            <div class="flex items-center gap-2 px-2 mb-6">
+                <img src="/icons/icon.svg" alt="" class="w-10 h-10 rounded-xl shadow-lift">
+                <div><div class="logo-word text-lg">Żużlowy <span>Typer</span></div><div class="text-[11px] text-white/55 font-bold uppercase tracking-wider">Wieża sędziowska</div></div>
+            </div>
+            <div class="gate-stripe rounded-full mx-2 mb-4"></div>
+            <nav class="flex flex-col gap-1" aria-label="Sekcje panelu" id="side-nav"></nav>
+            <div class="mt-auto flex flex-col gap-1">
+                <a href="/" class="side-link">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg>Strona typera</a>
+                <button data-act="logout" class="side-link">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 17l5-5-5-5M20 12H9M12 21H5a2 2 0 01-2-2V5a2 2 0 012-2h7"/></svg>Wyloguj</button>
+            </div>
+        </aside>
 
-        <!-- ============ 1. WYNIKI ============ -->
-        <div id="tab-results" class="tab-content active space-y-5">
-            <div class="card border-t-4 border-green-600">
-                <h2 class="text-lg font-bold text-green-800 border-b pb-2 mb-3">Wyniki całej kolejki</h2>
-                <div class="flex flex-wrap gap-2 items-end mb-3">
-                    <div>
-                        <label class="lbl">Kolejka</label>
-                        <select id="bulk-round" class="inp" onchange="renderBulkResults()"></select>
+        <div class="flex-1 min-w-0">
+            <!-- ===== NAGŁÓWEK ===== -->
+            <header class="hero lg:bg-none lg:text-ink sticky top-0 z-30 lg:static" style="padding-top: env(safe-area-inset-top)">
+                <div class="mx-auto max-w-4xl px-4 py-3 flex items-center gap-3">
+                    <img src="/icons/icon.svg" alt="" class="w-9 h-9 rounded-lg lg:hidden">
+                    <div class="min-w-0 flex-1">
+                        <h1 id="view-title" class="display text-xl lg:text-3xl truncate">Pulpit</h1>
+                        <div class="flex items-center gap-2 text-xs mt-1">
+                            <label for="season-picker" class="text-white/60 lg:text-muted">Sezon</label>
+                            <select id="season-picker" class="min-w-0 max-w-[12rem] rounded-md px-1.5 py-0.5 font-bold border-0 bg-white/10 text-white lg:bg-raised lg:text-ink lg:border lg:border-line"></select>
+                            <span id="season-state" class="chip bg-white/10 text-white/80 lg:bg-raised lg:text-muted hidden sm:inline-flex"></span>
+                        </div>
                     </div>
-                    <button onclick="saveBulkResults()" class="btn bg-green-600 hover:bg-green-700">✅ Zapisz wyniki kolejki</button>
+                    <button data-act="refresh" class="btn btn-sm bg-white/10 text-white lg:bg-raised lg:text-ink lg:border lg:border-line" aria-label="Odśwież dane">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7"/></svg>
+                    </button>
                 </div>
-                <div id="bulk-results" class="space-y-2"></div>
-            </div>
+                <div class="gate-stripe lg:hidden"></div>
+            </header>
 
-            <div class="card border-t-4 border-green-500">
-                <h2 class="text-lg font-bold text-green-800 border-b pb-2 mb-3">Pojedynczy mecz</h2>
-                <select id="result-select" class="inp mb-3 font-bold" onchange="loadResult()"></select>
-                <div class="flex gap-3 mb-3">
-                    <div class="w-1/2"><label class="lbl">Gospodarze (max 75)</label>
-                        <input type="number" id="res-home" class="inp text-center text-xl font-black"></div>
-                    <div class="w-1/2"><label class="lbl">Goście (max 75)</label>
-                        <input type="number" id="res-away" class="inp text-center text-xl font-black"></div>
+            <main class="mx-auto max-w-4xl px-4 py-4">
+                <div id="season-warning" class="hidden mb-4 rounded-2xl border border-warn/40 bg-warn/10 text-warn px-4 py-3 text-sm font-bold"></div>
+                <div id="view" aria-live="polite">
+                    <div class="skeleton h-28 mb-3"></div><div class="skeleton h-40"></div>
                 </div>
-                <div class="flex gap-2">
-                    <button onclick="saveResult()" class="btn bg-green-600 hover:bg-green-700 flex-1">Zapisz wynik</button>
-                    <button onclick="clearResult()" class="btn bg-gray-500 hover:bg-gray-600">Wyczyść wynik</button>
-                </div>
-            </div>
+            </main>
         </div>
 
-        <!-- ============ 2. TERMINARZ ============ -->
-        <div id="tab-matches" class="tab-content space-y-5">
-            <div class="card border-t-4 border-purple-500">
-                <h2 class="text-lg font-bold text-purple-800 border-b pb-2 mb-3">Edycja meczu</h2>
-                <select id="edit-select" class="inp mb-2" onchange="loadMatchSettings()"></select>
-                <label class="lbl">Data i godzina pierwszego biegu</label>
-                <input type="datetime-local" id="edit-date" class="inp mb-3 bg-yellow-50">
-                <label class="flex items-center gap-2 mb-2 text-sm font-bold text-yellow-600 cursor-pointer">
-                    <input type="checkbox" id="edit-motr" class="w-4 h-4"> Mecz kolejki (Złoty Kask)
-                </label>
-                <label class="flex items-center gap-2 mb-3 text-sm font-bold text-red-600 cursor-pointer">
-                    <input type="checkbox" id="edit-postponed" class="w-4 h-4"> Mecz odwołany / przełożony
-                </label>
-                <label class="lbl">Notatka widoczna na stronie (opcjonalnie)</label>
-                <input type="text" id="edit-note" class="inp mb-3" placeholder="np. mecz przerwany po 12 biegach">
-                <div class="flex gap-2">
-                    <button onclick="saveMatchEdit()" class="btn bg-purple-600 hover:bg-purple-700 flex-1">Zapisz zmiany</button>
-                    <button onclick="deleteMatch()" class="btn bg-red-600 hover:bg-red-700">Usuń mecz</button>
-                </div>
-            </div>
-
-            <div class="card border-t-4 border-blue-500">
-                <h2 class="text-lg font-bold text-blue-800 border-b pb-2 mb-3">Dodaj mecz ręcznie</h2>
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
-                    <div><label class="lbl">Kolejka</label><input type="number" id="add-round" class="inp"></div>
-                    <div><label class="lbl">Gospodarz</label><select id="add-home" class="inp"></select></div>
-                    <div><label class="lbl">Gość</label><select id="add-away" class="inp"></select></div>
-                    <div><label class="lbl">Data</label><input type="datetime-local" id="add-date" class="inp"></div>
-                </div>
-                <button onclick="addMatch()" class="btn bg-blue-600 hover:bg-blue-700 mt-3 w-full">Dodaj do terminarza</button>
-            </div>
-        </div>
-
-        <!-- ============ 3. GRACZE ============ -->
-        <div id="tab-players" class="tab-content space-y-5">
-            <div class="card border-t-4 border-blue-600">
-                <h2 class="text-lg font-bold text-blue-800 border-b pb-2 mb-3">Nowy gracz</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
-                    <div><label class="lbl">Imię i nazwisko</label><input type="text" id="new-fullname" class="inp"></div>
-                    <div><label class="lbl">Pseudonim (widoczny w rankingu)</label><input type="text" id="new-nickname" class="inp"></div>
-                </div>
-                <button onclick="addPlayer()" class="btn bg-blue-600 hover:bg-blue-700 w-full">Dodaj gracza do sezonu</button>
-            </div>
-
-            <div class="card border-t-4 border-blue-400">
-                <h2 class="text-lg font-bold text-blue-800 border-b pb-2 mb-3">Gracze i magiczne linki</h2>
-                <p class="text-xs text-gray-500 mb-3">Link jest hasłem gracza — wysyłaj go prywatnie. „Nowy link” unieważnia poprzedni.</p>
-                <div id="players-list" class="space-y-2"></div>
-            </div>
-        </div>
-
-        <!-- ============ 4. TYPY ============ -->
-        <div id="tab-tips" class="tab-content space-y-5">
-            <div class="card border-t-4 border-purple-500">
-                <h2 class="text-lg font-bold text-purple-900 mb-1">🕵️ Ręczna edycja typów</h2>
-                <p class="text-xs text-gray-500 mb-3">Omija blokadę czasową — używaj, gdy ktoś podał typ SMS-em albo doszło do pomyłki.</p>
-                <div class="flex flex-wrap gap-2 items-end mb-4">
-                    <div><label class="lbl">Gracz</label><select id="tips-player" class="inp" onchange="renderPlayerTips()"></select></div>
-                    <div><label class="lbl">Kolejka</label><select id="tips-round" class="inp" onchange="renderPlayerTips()"></select></div>
-                </div>
-                <div id="tips-container" class="space-y-2 max-h-[600px] overflow-y-auto pr-1"></div>
-            </div>
-
-            <div class="card border-t-4 border-yellow-500">
-                <h2 class="text-lg font-bold text-yellow-800 border-b pb-2 mb-3">Typy długoterminowe</h2>
-                <select id="lt-player" class="inp mb-2 font-bold" onchange="loadLongTerm()"></select>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
-                    <div><label class="lbl">🥇 Mistrz</label><select id="lt-gold" class="inp"></select></div>
-                    <div><label class="lbl">🥉 Brąz</label><select id="lt-bronze" class="inp"></select></div>
-                    <div><label class="lbl">⬇️ Spadek</label><select id="lt-releg" class="inp"></select></div>
-                </div>
-                <button onclick="saveLongTerm()" class="btn bg-yellow-500 hover:bg-yellow-600 w-full">Zapisz typy sezonowe gracza</button>
-            </div>
-        </div>
-
-        <!-- ============ 5. PUCHAR ============ -->
-        <div id="tab-cup" class="tab-content space-y-5">
-            <div class="card border-t-4 border-orange-500">
-                <h2 class="text-lg font-bold text-orange-800 border-b pb-2 mb-3">Rozstaw drabinkę automatycznie</h2>
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
-                    <div><label class="lbl">Faza</label><input type="text" id="cupg-stage" class="inp" placeholder="Ćwierćfinał"></div>
-                    <div><label class="lbl">Kolejka rozliczenia</label><select id="cupg-round" class="inp"></select></div>
-                    <div><label class="lbl">Ilu graczy</label><input type="number" id="cupg-count" class="inp" placeholder="8"></div>
-                    <button onclick="generateCup()" class="btn bg-orange-600 hover:bg-orange-700">Rozstaw pary</button>
-                </div>
-                <p class="text-xs text-gray-500 mt-2">Pary układane są wg rankingu: 1 vs ostatni, 2 vs przedostatni…</p>
-            </div>
-
-            <div class="card border-t-4 border-orange-400">
-                <h2 class="text-lg font-bold text-orange-800 border-b pb-2 mb-3">Para ręcznie</h2>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
-                    <div><label class="lbl">Faza</label><input type="text" id="cup-stage" class="inp"></div>
-                    <div><label class="lbl">Kolejka</label><select id="cup-round" class="inp"></select></div>
-                    <div class="flex items-end"><label class="flex items-center gap-2 text-xs font-bold text-gray-600">
-                        <input type="checkbox" id="cup-auto" checked class="w-4 h-4"> licz punkty automatycznie</label></div>
-                </div>
-                <div class="grid grid-cols-2 gap-2 mb-2">
-                    <div><label class="lbl">Gracz 1</label><select id="cup-p1" class="inp"></select></div>
-                    <div><label class="lbl">Gracz 2</label><select id="cup-p2" class="inp"></select></div>
-                </div>
-                <div class="grid grid-cols-2 gap-2 mb-3">
-                    <div><label class="lbl">Punkty 1 (puste = auto)</label><input type="number" id="cup-s1" class="inp"></div>
-                    <div><label class="lbl">Punkty 2 (puste = auto)</label><input type="number" id="cup-s2" class="inp"></div>
-                </div>
-                <div class="flex gap-2">
-                    <button onclick="saveCup()" class="btn bg-orange-600 hover:bg-orange-700 flex-1">Zapisz parę</button>
-                    <button onclick="autoscoreCup()" class="btn bg-blue-600 hover:bg-blue-700">🔄 Przelicz wyniki H2H</button>
-                </div>
-            </div>
-
-            <div class="card"><h2 class="text-lg font-bold text-gray-700 border-b pb-2 mb-3">Aktualna drabinka</h2>
-                <div id="cup-list" class="space-y-2"></div></div>
-        </div>
-
-        <!-- ============ 6. SEZONY ============ -->
-        <div id="tab-season" class="tab-content space-y-5">
-            <div class="card border-t-4 border-indigo-500">
-                <h2 class="text-lg font-bold text-indigo-800 border-b pb-2 mb-3">Sezony w bazie</h2>
-                <div id="seasons-list" class="space-y-2"></div>
-            </div>
-
-            <div class="card border-t-4 border-indigo-600">
-                <h2 class="text-lg font-bold text-indigo-800 border-b pb-2 mb-1">🆕 Nowy sezon (krok 1) — dane podstawowe</h2>
-                <p class="text-xs text-gray-500 mb-3">Bieżący sezon zostaje nietknięty i trafia do archiwum na stronie głównej.</p>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
-                    <div><label class="lbl">Rok</label><input type="number" id="ns-year" class="inp" placeholder="2027"></div>
-                    <div><label class="lbl">Nazwa</label><input type="text" id="ns-label" class="inp" placeholder="Ekstraliga 2027"></div>
-                    <div><label class="lbl">Blokada typów (godziny przed meczem)</label><input type="number" id="ns-lock" class="inp" value="24"></div>
-                </div>
-                <label class="lbl">Drużyny (jedna na linię, 8 drużyn)</label>
-                <textarea id="ns-teams" rows="8" class="inp font-mono text-xs mb-2"></textarea>
-                <label class="flex items-center gap-2 text-xs font-bold text-gray-600 mb-3">
-                    <input type="checkbox" id="ns-copy" checked class="w-4 h-4"> przepisz wszystkich aktywnych graczy do nowego sezonu
-                </label>
-                <div class="flex flex-wrap gap-2">
-                    <button onclick="copyTeamsFromCurrent()" class="btn bg-gray-500 hover:bg-gray-600">Wklej drużyny z bieżącego sezonu</button>
-                    <button onclick="saveNewSeason(false)" class="btn bg-indigo-600 hover:bg-indigo-700">Zapisz sezon (nieaktywny)</button>
-                    <button onclick="saveNewSeason(true)" class="btn bg-green-700 hover:bg-green-800">Zapisz i ustaw jako aktywny</button>
-                </div>
-            </div>
-
-            <div class="card border-t-4 border-indigo-400">
-                <h2 class="text-lg font-bold text-indigo-800 border-b pb-2 mb-1">📅 Nowy sezon (krok 2) — terminarz</h2>
-                <p class="text-xs text-gray-500 mb-3">Generator układa dwumecze każdy z każdym (8 drużyn = 14 kolejek po 4 mecze). Potem poprawisz pojedyncze daty w zakładce Terminarz.</p>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
-                    <div><label class="lbl">Sezon (rok)</label><input type="number" id="gen-season" class="inp"></div>
-                    <div><label class="lbl">Poniedziałek 1. kolejki</label><input type="date" id="gen-start" class="inp"></div>
-                    <div><label class="lbl">Kolejki, po których wolny tydzień</label><input type="text" id="gen-skip" class="inp" placeholder="np. 3,6,11"></div>
-                </div>
-                <label class="lbl">Godziny meczów w kolejce (dzień tygodnia + godzina)</label>
-                <div id="gen-slots" class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3"></div>
-                <div class="flex flex-wrap gap-2">
-                    <button onclick="previewSchedule()" class="btn bg-gray-600 hover:bg-gray-700">👁️ Podgląd</button>
-                    <button onclick="saveSchedule(false)" class="btn bg-indigo-600 hover:bg-indigo-700">Zapisz terminarz</button>
-                    <button onclick="saveSchedule(true)" class="btn bg-red-600 hover:bg-red-700">Zastąp istniejący (usuwa typy!)</button>
-                </div>
-                <pre id="gen-preview" class="mt-3 bg-gray-900 text-green-300 text-[10px] p-3 rounded max-h-64 overflow-auto hidden"></pre>
-            </div>
-
-            <div class="card border-t-4 border-gray-500">
-                <h2 class="text-lg font-bold text-gray-800 border-b pb-2 mb-3">Import terminarza z JSON</h2>
-                <textarea id="schedule-json" rows="4" class="inp font-mono text-xs mb-2"
-                    placeholder='[{"round":1,"homeTeam":"Drużyna A","awayTeam":"Drużyna B","matchDate":"2027-04-09T18:00:00+02:00","isMatchOfTheRound":true}]'></textarea>
-                <button onclick="importSchedule()" class="btn bg-gray-700 hover:bg-gray-800 w-full">Wczytaj JSON do wybranego sezonu</button>
-            </div>
-
-            <div class="card border-t-4 border-purple-700">
-                <h2 class="text-lg font-bold text-purple-900 border-b pb-2 mb-1">🏆 Zamknięcie sezonu</h2>
-                <p class="text-xs text-gray-500 mb-3">Wskaż faktyczne wyniki ligi — gracze dostaną punkty za typy długoterminowe.</p>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
-                    <div><label class="lbl">Mistrz Polski</label><select id="fin-gold" class="inp"></select></div>
-                    <div><label class="lbl">Brązowy medal</label><select id="fin-bronze" class="inp"></select></div>
-                    <div><label class="lbl">Spadek</label><select id="fin-releg" class="inp"></select></div>
-                </div>
-                <label class="flex items-center gap-2 text-xs font-bold text-gray-600 mb-3">
-                    <input type="checkbox" id="fin-mark" class="w-4 h-4"> oznacz sezon jako zakończony (archiwum, blokada zapisu typów)
-                </label>
-                <button onclick="finishSeason()" class="btn bg-purple-700 hover:bg-purple-900 w-full">Rozlicz typy długoterminowe</button>
-            </div>
-        </div>
-
-        <!-- ============ 7. SYSTEM ============ -->
-        <div id="tab-system" class="tab-content space-y-5">
-            <div class="card border-t-4 border-blue-600">
-                <h2 class="text-lg font-bold text-blue-800 border-b pb-2 mb-3">Operacje na punktach</h2>
-                <div class="flex flex-col gap-2">
-                    <button onclick="recalc()" class="btn bg-blue-600 hover:bg-blue-800">🔄 Przelicz punkty całego sezonu</button>
-                    <button onclick="fixDuplicates()" class="btn bg-yellow-500 hover:bg-yellow-600">🔧 Napraw duplikaty typów i nadmiarowe jokery</button>
-                </div>
-            </div>
-
-            <div class="card border-t-4 border-green-600">
-                <h2 class="text-lg font-bold text-green-800 border-b pb-2 mb-3">Kopia zapasowa</h2>
-                <p class="text-xs text-gray-500 mb-3">Rób kopię przed każdą większą operacją. Plik zawiera wszystkie sezony i tokeny graczy — trzymaj go prywatnie.</p>
-                <div class="flex flex-col gap-2">
-                    <button onclick="downloadBackup()" class="btn bg-green-700 hover:bg-green-900">💾 Pobierz kopię (JSON)</button>
-                    <label class="lbl mt-2">Przywróć z pliku</label>
-                    <input type="file" id="restore-file" accept="application/json" class="inp bg-white">
-                    <button onclick="restoreBackup()" class="btn bg-red-600 hover:bg-red-800">♻️ Przywróć (scalanie)</button>
-                </div>
-            </div>
-
-            <div class="card border-t-4 border-red-600">
-                <h2 class="text-lg font-bold text-red-800 border-b pb-2 mb-3">Strefa ryzyka</h2>
-                <div class="flex flex-wrap gap-2 items-end">
-                    <div><label class="lbl">Usuń kolejki od numeru</label><input type="number" id="clean-from" class="inp" value="15"></div>
-                    <button onclick="cleanRounds()" class="btn bg-orange-500 hover:bg-orange-600">🧹 Usuń kolejki i ich typy</button>
-                </div>
-            </div>
-        </div>
+        <!-- ===== DOLNA NAWIGACJA (telefon) ===== -->
+        <nav class="tabbar grid-cols-5 md:grid lg:hidden" aria-label="Sekcje panelu" id="tab-nav"></nav>
     </div>
 
-    <script src="js/shared.js"></script>
-    <script src="js/admin.js"></script>
+    <script src="/js/shared.js?v=__V__"></script>
+    <script src="/js/admin.js?v=__V__"></script>
 </body>
 </html>

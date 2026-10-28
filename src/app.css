@@ -1,0 +1,447 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------
+   Motyw "żużel pod światłami": nocny stadion, tor, kolory kasków i tablica wyników.
+   Tokeny kolorów: jasny motyw domyślnie, ciemny według ustawień telefonu.
+   Wszystkie komponenty używają tokenów, więc dark mode działa bez dublowania klas.
+------------------------------------------------------------------- */
+@layer base {
+    :root {
+        --bg: 238 241 246;
+        --surface: 255 255 255;
+        --raised: 245 247 251;
+        --line: 223 229 238;
+        --ink: 14 20 36;
+        --muted: 79 92 114;
+        --faint: 144 158 180;
+        --brand: 220 38 38;          /* czerwień kevlaru i taśmy startowej */
+        --brand-ink: 255 255 255;
+        --gold: 202 138 4;           /* Złoty Kask */
+        --silver: 120 134 156;
+        --bronze: 176 101 47;
+        --ok: 22 163 74;
+        --bad: 220 38 38;
+        --warn: 217 119 6;
+        --night: 10 15 28;           /* niebo nad stadionem */
+        --track: 92 64 46;           /* nawierzchnia toru */
+        --gate-red: 220 38 38;
+        --gate-blue: 37 99 235;
+        --gate-white: 236 240 246;
+        --gate-yellow: 234 179 8;
+        color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg: 8 12 22;
+            --surface: 16 22 36;
+            --raised: 23 31 49;
+            --line: 37 48 70;
+            --ink: 236 241 248;
+            --muted: 160 174 196;
+            --faint: 98 114 138;
+            --brand: 248 82 82;
+            --brand-ink: 20 6 6;
+            --gold: 240 186 30;
+            --silver: 170 182 200;
+            --bronze: 214 138 82;
+            --ok: 74 222 128;
+            --bad: 248 113 113;
+            --warn: 251 191 36;
+            --night: 5 8 16;
+            --track: 120 86 62;
+            --gate-red: 239 68 68;
+            --gate-blue: 72 132 245;
+            --gate-white: 226 232 240;
+            --gate-yellow: 250 204 21;
+            color-scheme: dark;
+        }
+    }
+
+    html { -webkit-tap-highlight-color: transparent; }
+    body {
+        @apply bg-bg text-ink font-sans antialiased;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+    /* Pola liczbowe bez strzałek - na telefonie i tak jest klawiatura numeryczna */
+    input[type=number]::-webkit-outer-spin-button,
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+    :focus-visible { outline: 2px solid rgb(var(--brand)); outline-offset: 2px; }
+    ::selection { background: rgb(var(--gold) / .35); }
+}
+
+@layer components {
+    /* ---------- typografia "plakatu żużlowego" ---------- */
+    .display { @apply font-black italic uppercase tracking-tight leading-none; }
+    .card { @apply bg-surface border border-line rounded-2xl shadow-card; }
+    .card-pad { @apply p-4 sm:p-5; }
+    .section-title { @apply text-base font-black italic uppercase tracking-tight text-ink; }
+    .eyebrow { @apply text-[11px] font-bold uppercase tracking-wider text-muted; }
+
+    /* Pasek w kolorach kasków (start: czerwony, niebieski, biały, żółty) */
+    .gate-stripe {
+        height: 4px;
+        background: linear-gradient(90deg,
+            rgb(var(--gate-red)) 0 25%, rgb(var(--gate-blue)) 25% 50%,
+            rgb(var(--gate-white)) 50% 75%, rgb(var(--gate-yellow)) 75% 100%);
+    }
+
+    /* ---------- nagłówek: stadion nocą ---------- */
+    .hero {
+        @apply relative overflow-hidden text-white;
+        background:
+            radial-gradient(60% 90% at 8% -20%, rgb(255 236 179 / .20), transparent 60%),
+            radial-gradient(60% 90% at 92% -20%, rgb(255 236 179 / .16), transparent 60%),
+            linear-gradient(180deg, rgb(var(--night)) 0%, rgb(18 26 46) 100%);
+    }
+    .hero-track {
+        @apply absolute pointer-events-none select-none;
+        right: -90px; bottom: -70px; width: 360px; height: 220px; opacity: .14;
+    }
+    .hero > *:not(.hero-track) { position: relative; }
+    .logo-word { @apply display text-xl sm:text-2xl; letter-spacing: -.03em; }
+    .logo-word span { color: rgb(var(--gold)); }
+
+    /* ---------- tablica wyników (LED) ---------- */
+    .led {
+        @apply font-led font-black tabular-nums;
+        color: rgb(var(--gold));
+        text-shadow: 0 0 10px rgb(var(--gold) / .55);
+    }
+    .led-box {
+        @apply inline-flex items-center justify-center rounded-xl px-3 py-1.5 font-led font-black tabular-nums;
+        background: linear-gradient(180deg, rgb(8 12 22), rgb(20 27 44));
+        color: rgb(253 224 71);
+        text-shadow: 0 0 10px rgb(253 224 71 / .5);
+        box-shadow: inset 0 2px 6px rgb(0 0 0 / .6), 0 0 0 1px rgb(255 255 255 / .06);
+    }
+    .led-box.idle { color: rgb(148 163 184); text-shadow: none; }
+
+    /* Światła startowe przy odliczaniu: zapalają się, im bliżej blokady */
+    .start-lights { @apply inline-flex gap-1.5 items-center; }
+    .start-lights i {
+        @apply block w-2.5 h-2.5 rounded-full;
+        background: rgb(255 255 255 / .14);
+        box-shadow: inset 0 1px 2px rgb(0 0 0 / .5);
+    }
+    .start-lights i.on { background: rgb(var(--brand)); box-shadow: 0 0 10px rgb(var(--brand) / .9); }
+    .start-lights.go i.on { background: rgb(var(--ok)); box-shadow: 0 0 10px rgb(var(--ok) / .9); }
+    .start-lights.hot i.on { animation: blink 1s steps(2, start) infinite; }
+
+    .gate-panel {
+        @apply flex items-center justify-between gap-3 rounded-2xl px-4 py-3;
+        background: rgb(255 255 255 / .05);
+        border: 1px solid rgb(255 255 255 / .10);
+        backdrop-filter: blur(6px);
+    }
+
+    /* ---------- kask zawodnika (awatar typera) ---------- */
+    .helmet {
+        --h: var(--gate-red);
+        @apply relative inline-flex items-end justify-center shrink-0 w-10 h-10 text-[10px] font-black;
+        border-radius: 48% 48% 40% 40% / 58% 58% 42% 42%;
+        background:
+            radial-gradient(circle at 32% 26%, rgb(255 255 255 / .55), transparent 34%),
+            linear-gradient(180deg, rgb(var(--h)), rgb(var(--h) / .82));
+        box-shadow: inset 0 -5px 0 rgb(0 0 0 / .18), 0 1px 3px rgb(0 0 0 / .25);
+        color: #fff;
+    }
+    .helmet::before { /* gogle */
+        content: ''; @apply absolute rounded-full;
+        left: 14%; right: 14%; top: 40%; height: 24%;
+        background: linear-gradient(180deg, rgb(15 23 42), rgb(51 65 85));
+        box-shadow: inset 0 1px 0 rgb(255 255 255 / .25);
+    }
+    .helmet > span { @apply relative z-10 mb-[13%] leading-none tracking-tight; text-shadow: 0 1px 1px rgb(0 0 0 / .35); }
+    .helmet.h-red { --h: var(--gate-red); }
+    .helmet.h-blue { --h: var(--gate-blue); }
+    .helmet.h-white { --h: var(--gate-white); color: rgb(15 23 42); box-shadow: inset 0 -5px 0 rgb(0 0 0 / .1), 0 0 0 1px rgb(0 0 0 / .12); }
+    .helmet.h-white > span, .helmet.h-yellow > span { text-shadow: none; }
+    .helmet.h-yellow { --h: var(--gate-yellow); color: rgb(15 23 42); }
+    .helmet.h-gold { --h: var(--gold); box-shadow: inset 0 -5px 0 rgb(0 0 0 / .15), 0 0 16px rgb(var(--gold) / .6); }
+    .helmet.h-silver { --h: var(--silver); }
+    .helmet.h-bronze { --h: var(--bronze); }
+    .helmet-sm { @apply w-8 h-8 text-[9px]; }
+    .helmet-lg { @apply w-14 h-14 text-xs; }
+    .helmet-xl { @apply w-20 h-20 text-base; }
+
+    /* ---------- przyciski i pola ---------- */
+    .btn {
+        @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 min-h-[44px] text-sm font-bold
+               transition active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none select-none;
+    }
+    .btn-primary { @apply btn bg-brand text-brand-ink hover:brightness-110; box-shadow: 0 6px 18px rgb(var(--brand) / .28); }
+    .btn-ghost { @apply btn bg-raised text-ink border border-line hover:bg-line/60; }
+    .btn-ok { @apply btn bg-ok text-white hover:brightness-110; }
+    .btn-gold { @apply btn text-night hover:brightness-110; background: linear-gradient(180deg, rgb(253 224 71), rgb(var(--gold))); box-shadow: 0 6px 18px rgb(var(--gold) / .35); }
+    .btn-danger { @apply btn bg-bad/10 text-bad border border-bad/30 hover:bg-bad/20; }
+    .btn-sm { @apply min-h-[36px] px-3 text-xs rounded-lg; }
+
+    .input {
+        @apply w-full rounded-xl border border-line bg-raised px-3 min-h-[44px] text-base text-ink
+               placeholder:text-faint focus:border-brand focus:outline-none;
+    }
+    .label { @apply block text-[11px] font-bold uppercase tracking-wider text-muted mb-1; }
+
+    .chip { @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold whitespace-nowrap; }
+    .chip-muted { @apply chip bg-raised text-muted border border-line; }
+    .chip-ok { @apply chip bg-ok/10 text-ok; }
+    .chip-bad { @apply chip bg-bad/10 text-bad; }
+    .chip-warn { @apply chip bg-warn/15 text-warn; }
+    .chip-gold { @apply chip bg-gold/15 text-gold; }
+    .chip-brand { @apply chip bg-brand/10 text-brand; }
+    .chip-live { @apply chip bg-brand text-white; }
+    .chip-live::before { content: ''; @apply w-1.5 h-1.5 rounded-full bg-white; animation: blink 1.2s steps(2, start) infinite; }
+
+    /* Przełącznik kolejek: przewijany poziomo pasek */
+    .scroller { @apply flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 snap-x; scrollbar-width: none; }
+    .scroller::-webkit-scrollbar { display: none; }
+    .round-chip {
+        @apply snap-start shrink-0 rounded-full border border-line bg-surface px-3.5 min-h-[40px] text-sm font-black italic text-muted
+               inline-flex items-center;
+    }
+    .round-chip[aria-current="true"] { @apply bg-night text-white border-night; box-shadow: inset 0 -3px 0 rgb(var(--brand)); }
+
+    /* Dolna nawigacja (telefon) */
+    .tabbar {
+        @apply fixed bottom-0 inset-x-0 z-40 bg-surface/95 backdrop-blur border-t border-line grid md:hidden;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+    .tab-link { @apply relative flex flex-col items-center justify-center gap-0.5 min-h-[56px] text-[11px] font-bold text-muted; }
+    .tab-link[aria-current="page"] { @apply text-brand; }
+    .tab-link[aria-current="page"]::before {
+        content: ''; @apply absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[3px] rounded-b-full bg-brand;
+        box-shadow: 0 2px 8px rgb(var(--brand) / .6);
+    }
+    .tab-link svg { @apply w-6 h-6; }
+    .toplink { @apply px-3 py-2 rounded-lg text-sm font-black italic uppercase tracking-tight text-white/65 hover:text-white; }
+    .toplink[aria-current="page"] { @apply bg-white/10 text-white; box-shadow: inset 0 -2px 0 rgb(var(--brand)); }
+
+    /* Przycisk "Typuj" nad dolnym paskiem (gdy telefon zna link gracza) */
+    .fab {
+        @apply fixed z-40 right-4 md:hidden inline-flex items-center gap-2 rounded-full pl-3 pr-4 h-12 text-sm font-black italic uppercase text-white;
+        bottom: calc(68px + env(safe-area-inset-bottom));
+        background: linear-gradient(180deg, rgb(var(--brand)), rgb(185 28 28));
+        box-shadow: 0 8px 24px rgb(var(--brand) / .45);
+    }
+
+    /* ---------- karta meczu ("bieg") ---------- */
+    .race-card { @apply card overflow-hidden relative; }
+    .race-card.kask { border-color: rgb(var(--gold) / .55); box-shadow: 0 0 0 1px rgb(var(--gold) / .35), 0 8px 26px rgb(var(--gold) / .14); }
+    .race-card.kask::after {
+        content: ''; @apply absolute inset-x-0 top-0 h-1 pointer-events-none;
+        background: linear-gradient(90deg, transparent, rgb(var(--gold)), transparent);
+    }
+    .side-home { box-shadow: inset 3px 0 0 rgb(var(--gate-red)); }
+    .side-away { box-shadow: inset -3px 0 0 rgb(var(--gate-yellow)); }
+    .team-name { @apply text-sm font-black leading-tight text-center break-words; }
+    .vs { @apply text-[10px] font-black italic uppercase text-faint tracking-widest; }
+    .kask-badge { @apply chip text-night; background: linear-gradient(180deg, rgb(253 224 71), rgb(var(--gold))); }
+    .pts-stamp {
+        @apply inline-flex items-center justify-center min-w-[2.6rem] h-7 px-2 rounded-lg text-xs font-black tabular-nums -rotate-3;
+        border: 2px solid currentColor;
+    }
+    .pts-stamp.big { @apply h-9 text-base min-w-[3.4rem]; }
+
+    /* Pole typu: duże cyfry pod kciuk, jak na tablicy wyników */
+    .score-input {
+        @apply w-16 h-16 rounded-2xl text-center text-3xl font-led font-black tabular-nums
+               focus:outline-none disabled:opacity-70;
+        background: linear-gradient(180deg, rgb(8 12 22), rgb(22 30 48));
+        color: rgb(253 224 71);
+        caret-color: rgb(253 224 71);
+        text-shadow: 0 0 10px rgb(253 224 71 / .45);
+        box-shadow: inset 0 2px 8px rgb(0 0 0 / .7), 0 0 0 2px rgb(var(--line));
+    }
+    .score-input::placeholder { color: rgb(148 163 184 / .5); text-shadow: none; }
+    .score-input:focus { box-shadow: inset 0 2px 8px rgb(0 0 0 / .7), 0 0 0 2px rgb(var(--brand)), 0 0 18px rgb(var(--brand) / .35); }
+    .score-input.filled { box-shadow: inset 0 2px 8px rgb(0 0 0 / .7), 0 0 0 2px rgb(var(--ok) / .7); }
+    .score-input:disabled { color: rgb(203 213 225); text-shadow: none; }
+
+    /* Joker jako karta do gry */
+    .joker-card {
+        @apply mt-3 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gold/50 py-2.5 text-sm font-black italic uppercase text-gold cursor-pointer select-none transition;
+    }
+    .joker-card:has(:checked) { @apply border-solid text-night; background: linear-gradient(180deg, rgb(253 224 71), rgb(var(--gold))); box-shadow: 0 6px 18px rgb(var(--gold) / .35); }
+    .joker-card:has(:checked) .hint { @apply text-night/70; }
+
+    /* Licznik sumy 90 */
+    .sum-meter { @apply h-1.5 rounded-full bg-line overflow-hidden mt-2 mx-auto max-w-[12rem]; }
+    .sum-meter > i { @apply block h-full rounded-full bg-muted transition-all; }
+    .sum-meter.ok > i { @apply bg-ok; }
+    .sum-meter.over > i { @apply bg-bad; }
+
+    .team-logo { @apply w-7 h-7 object-contain shrink-0; }
+    .team-logo-lg { @apply w-11 h-11 object-contain shrink-0; }
+    .team-badge {
+        @apply inline-flex items-center justify-center w-7 h-7 rounded-full bg-night text-white text-[9px] font-black shrink-0;
+    }
+    .team-logo-lg + .team-badge, .team-badge.lg { @apply w-11 h-11 text-[11px]; }
+
+    .form-dot { @apply inline-flex items-center justify-center w-5 h-5 rounded-md text-[10px] font-black text-white; }
+    .form-w { @apply bg-ok; }
+    .form-l { @apply bg-bad; }
+    .form-d { @apply bg-faint; }
+    .form-none { @apply bg-line text-transparent; }
+
+    .skeleton { @apply animate-pulse bg-line/70 rounded-xl; }
+
+    /* ---------- ranking i podium ---------- */
+    .podium { @apply grid grid-cols-3 items-end gap-2 sm:gap-4; }
+    .podium-step { @apply flex flex-col items-center text-center min-w-0; }
+    .podium-block {
+        @apply w-full mt-2 rounded-t-xl flex flex-col items-center justify-start pt-2 text-white display;
+        background: linear-gradient(180deg, rgb(var(--p) / .95), rgb(var(--p) / .7));
+        box-shadow: inset 0 3px 0 rgb(255 255 255 / .25);
+        animation: rise .7s cubic-bezier(.2, .8, .2, 1) both;
+    }
+    .podium-step.p1 .podium-block { height: 7.5rem; }
+    .podium-step.p2 .podium-block { height: 5.5rem; animation-delay: .12s; }
+    .podium-step.p3 .podium-block { height: 4.25rem; animation-delay: .24s; }
+    .podium-step[data-pos="1"] .podium-block { --p: var(--gold); }
+    .podium-step[data-pos="2"] .podium-block { --p: var(--silver); }
+    .podium-step[data-pos="3"] .podium-block { --p: var(--bronze); }
+    .rank-row { @apply flex items-center gap-3 px-4 py-3 hover:bg-raised active:bg-raised; }
+    .rank-pos {
+        @apply w-8 h-8 shrink-0 rounded-lg flex items-center justify-center text-sm font-black italic tabular-nums bg-raised text-muted border border-line;
+    }
+    .rank-pos.top { @apply text-night border-0; background: linear-gradient(180deg, rgb(253 224 71), rgb(var(--gold))); }
+    .rank-pos.p2 { @apply text-white border-0; background: rgb(var(--silver)); }
+    .rank-pos.p3 { @apply text-white border-0; background: rgb(var(--bronze)); }
+
+    /* tabela ligi: strefy */
+    .zone-po { box-shadow: inset 3px 0 0 rgb(var(--ok)); }
+    .zone-down { box-shadow: inset 3px 0 0 rgb(var(--bad)); }
+
+    /* ---------- puchar: pojedynek kasków ---------- */
+    .duel { @apply card card-pad relative overflow-hidden; }
+    .duel.done-win1 .duel-p1, .duel.done-win2 .duel-p2 { @apply text-ok; }
+    .duel-side { @apply flex items-center gap-2 min-w-0; }
+
+    /* ---------- regulamin ---------- */
+    .rule-block { @apply rounded-2xl border border-line bg-raised/60 p-4; }
+    .rule-title { @apply flex items-center gap-2 text-sm font-black italic uppercase tracking-tight mb-2; }
+    .rule-title > span:first-child { @apply w-8 h-8 rounded-lg bg-surface border border-line flex items-center justify-center text-base not-italic; }
+    .rule-list { @apply space-y-1.5 text-sm text-muted; }
+    .rule-list li { @apply relative pl-4; }
+    .rule-list li::before { content: ''; @apply absolute left-0 top-[.55em] w-1.5 h-1.5 rounded-full bg-brand; }
+    .score-tile { @apply rounded-xl bg-surface border border-line py-2.5 px-1; }
+    .score-tile .led { @apply text-2xl; }
+
+    /* ---------- osiągnięcia (profil) ---------- */
+    .ach { @apply flex items-center gap-3 rounded-2xl border border-line bg-surface p-3; }
+    .ach-icon { @apply w-11 h-11 shrink-0 rounded-xl flex items-center justify-center text-2xl; background: rgb(var(--gold) / .12); }
+    .ach.locked { @apply opacity-45; filter: grayscale(1); }
+
+    /* ---------- panel admina ---------- */
+    .side-link {
+        @apply flex items-center gap-3 rounded-xl px-3 min-h-[44px] text-sm font-bold text-white/70 hover:bg-white/5 hover:text-white;
+    }
+    .side-link[aria-current="page"] { @apply bg-white/10 text-white; box-shadow: inset 3px 0 0 rgb(var(--brand)); }
+    .side-link svg { @apply w-5 h-5 shrink-0; }
+    .badge-count { @apply ml-auto inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-brand text-white text-[11px] font-black; }
+    .tab-link .badge-dot { @apply absolute top-1.5 right-[calc(50%_-_22px)] min-w-[18px] h-[18px] px-1 rounded-full bg-brand text-white text-[10px] font-black flex items-center justify-center; }
+    .kpi { @apply card p-3 relative overflow-hidden; }
+    .kpi::before { content: ''; @apply absolute inset-x-0 top-0 h-[3px]; background: rgb(var(--k, var(--brand))); }
+    .kpi .kpi-icon { @apply absolute right-3 top-3 text-xl opacity-80; }
+
+    /* Segmentowy przełącznik (podsekcje) */
+    .seg { @apply flex gap-1 rounded-xl bg-raised border border-line p-1 overflow-x-auto; scrollbar-width: none; }
+    .seg button { @apply shrink-0 rounded-lg px-3 min-h-[36px] text-sm font-bold text-muted whitespace-nowrap; }
+    .seg button[aria-current="true"] { @apply bg-surface text-ink shadow-card; }
+
+    /* Przełącznik on/off zamiast gołego checkboxa */
+    .switch {
+        @apply relative shrink-0 w-11 h-6 rounded-full bg-line transition cursor-pointer;
+        appearance: none; -webkit-appearance: none;
+    }
+    .switch::after { content: ''; @apply absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition; }
+    .switch:checked { @apply bg-ok; }
+    .switch:checked::after { transform: translateX(20px); }
+    .switch:disabled { @apply opacity-50 cursor-not-allowed; }
+    .option-row { @apply flex items-start justify-between gap-3 py-3 border-b border-line last:border-0; }
+    .option-row .hint { @apply text-xs text-muted font-normal mt-0.5; }
+
+    /* Szuflada / okno dialogowe */
+    .sheet-backdrop { @apply fixed inset-0 z-[90] bg-black/55 backdrop-blur-[2px] flex items-end sm:items-center justify-center; }
+    .sheet {
+        @apply bg-surface w-full sm:max-w-lg max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl shadow-card;
+        padding-bottom: env(safe-area-inset-bottom);
+        animation: sheet-in .22s ease-out both;
+    }
+    .sheet-head { @apply sticky top-0 z-10 bg-surface/95 backdrop-blur flex items-start gap-3 px-5 pt-4 pb-3 border-b border-line; }
+    .sheet-body { @apply px-5 py-4; }
+    .sheet-foot { @apply sticky bottom-0 bg-surface/95 backdrop-blur flex gap-2 px-5 py-3 border-t border-line; }
+
+    .todo-card { @apply card card-pad border-l-4; }
+    .mini-score {
+        @apply w-14 h-11 rounded-lg text-center text-lg font-led font-black tabular-nums focus:outline-none;
+        background: rgb(var(--night)); color: rgb(253 224 71); box-shadow: inset 0 2px 5px rgb(0 0 0 / .6), 0 0 0 1px rgb(var(--line));
+    }
+    .mini-score::placeholder { color: rgb(148 163 184 / .55); }
+    .mini-score:focus { box-shadow: inset 0 2px 5px rgb(0 0 0 / .6), 0 0 0 2px rgb(var(--brand)); }
+    .mini-score.changed { box-shadow: inset 0 2px 5px rgb(0 0 0 / .6), 0 0 0 2px rgb(var(--warn)); }
+    .kv { @apply flex items-center justify-between gap-2 py-1.5 text-sm; }
+    .kv dt { @apply text-muted; }
+    .kv dd { @apply font-bold text-right; }
+
+    /* ---------- Mistrz Typera ---------- */
+    .champ-card {
+        @apply relative overflow-hidden rounded-3xl p-5 text-white;
+        background:
+            radial-gradient(80% 120% at 50% -30%, rgb(253 224 71 / .35), transparent 60%),
+            linear-gradient(160deg, rgb(var(--night)), rgb(40 28 6));
+        box-shadow: 0 0 0 1px rgb(var(--gold) / .5), 0 18px 40px rgb(var(--gold) / .2);
+    }
+    .champ-card .trophy { @apply text-5xl; filter: drop-shadow(0 0 14px rgb(253 224 71 / .7)); animation: float 3s ease-in-out infinite; }
+    .scratch { @apply relative mx-auto w-full max-w-sm min-h-[11rem] aspect-[16/9] rounded-2xl overflow-hidden select-none; touch-action: none; }
+    .scratch canvas { @apply absolute inset-0 w-full h-full cursor-pointer; }
+    .scratch-prize {
+        @apply absolute inset-0 flex flex-col items-center justify-center text-center p-4;
+        background: radial-gradient(circle at 50% 30%, rgb(255 251 235), rgb(254 243 199));
+        color: rgb(66 32 6);
+    }
+}
+
+/* Pasek postępu panelu admina (widoczny, gdy trwa zapis / odświeżanie) */
+#busybar { display: none; }
+body[data-busy] #busybar { display: block; }
+
+/* Powiadomienia (toast) */
+.toast-box {
+    position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom));
+    transform: translate(-50%, 1rem); opacity: 0; pointer-events: none; z-index: 200;
+    padding: .7rem 1.2rem; border-radius: 999px; font-weight: 700; font-size: .85rem; color: #fff;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .25); transition: transform .2s ease, opacity .2s ease;
+    max-width: 92vw; text-align: center;
+}
+.toast-box.show { transform: translate(-50%, 0); opacity: 1; }
+.toast-ok { background: rgb(22 163 74); }
+.toast-err { background: rgb(220 38 38); }
+@media (min-width: 768px) { .toast-box { bottom: 1.5rem; } }
+
+/* Wykresy (gracz.html) */
+.chart-tip {
+    position: absolute; pointer-events: none; z-index: 10; white-space: nowrap;
+    @apply rounded-lg bg-ink text-bg text-xs font-semibold px-2.5 py-1.5 shadow-card;
+}
+
+/* Konfetti nad całą stroną (Mistrz Typera) */
+#confetti { position: fixed; inset: 0; pointer-events: none; z-index: 150; }
+
+@keyframes blink { to { visibility: hidden; } }
+@keyframes rise { from { transform: scaleY(.2); transform-origin: bottom; opacity: 0; } to { transform: scaleY(1); transform-origin: bottom; opacity: 1; } }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes pop { 0% { transform: scale(.6); opacity: 0; } 70% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
+.pop { animation: pop .45s cubic-bezier(.2, .8, .2, 1) both; }
+
+@media print {
+    .no-print, .tabbar, .fab { display: none !important; }
+    body { background: #fff; }
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+}

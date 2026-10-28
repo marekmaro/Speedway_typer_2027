@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Profil typera — Żużlowy Typer</title>
+    <meta name="theme-color" content="#0a0f1c">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="stylesheet" href="/css/app.css?v=__V__">
+</head>
+<body class="pb-10">
+    <header class="hero" style="padding-top: env(safe-area-inset-top)">
+        <svg class="hero-track" viewBox="0 0 360 220" fill="none" aria-hidden="true">
+            <ellipse cx="180" cy="110" rx="170" ry="96" stroke="white" stroke-width="22"/>
+            <ellipse cx="180" cy="110" rx="128" ry="58" stroke="white" stroke-width="2" stroke-dasharray="6 8"/>
+        </svg>
+        <div class="mx-auto max-w-3xl px-4 pt-3 pb-5">
+            <a href="/#ranking" class="inline-flex items-center gap-1 text-sm font-bold text-white/70 hover:text-white min-h-[44px]">← Ranking</a>
+            <div class="flex items-center gap-4">
+                <span id="g-helmet" class="shrink-0"><span class="helmet helmet-xl h-white" aria-hidden="true"><span>…</span></span></span>
+                <div class="min-w-0 flex-1">
+                    <div id="g-season" class="text-[11px] font-bold uppercase tracking-wider text-white/55 truncate"></div>
+                    <h1 id="g-nick" class="display text-3xl sm:text-4xl truncate">…</h1>
+                    <div class="flex flex-wrap items-baseline gap-x-2 mt-1">
+                        <span id="g-points" class="led text-3xl leading-none">–</span>
+                        <span id="g-pos" class="text-sm font-semibold text-white/70"></span>
+                    </div>
+                    <div id="g-medal" class="mt-1.5"></div>
+                </div>
+            </div>
+        </div>
+        <div class="gate-stripe"></div>
+    </header>
+
+    <main class="mx-auto max-w-3xl px-4 py-4 space-y-4">
+        <div id="g-error" class="hidden card card-pad text-bad font-bold"></div>
+
+        <section id="g-tiles" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></section>
+
+        <section class="card card-pad">
+            <h2 class="section-title mb-3">🏅 Osiągnięcia</h2>
+            <div id="g-achievements" class="grid gap-2 sm:grid-cols-2"></div>
+        </section>
+
+        <section class="card card-pad">
+            <h2 class="section-title">Punkty w kolejkach</h2>
+            <p class="text-xs text-muted mb-3">Słupki: punkty gracza · linia przerywana: średnia wszystkich typerów</p>
+            <div id="chart-points" class="relative"></div>
+        </section>
+
+        <section class="card card-pad">
+            <h2 class="section-title">Miejsce w rankingu po kolejce</h2>
+            <p class="text-xs text-muted mb-3">Wyżej = lepiej</p>
+            <div id="chart-position" class="relative"></div>
+        </section>
+
+        <section class="card card-pad">
+            <h2 class="section-title mb-3">⚔️ Porównaj z…</h2>
+            <select id="g-rival" class="input" aria-label="Rywal"></select>
+            <div id="g-h2h" class="mt-3"></div>
+        </section>
+
+        <section class="card overflow-hidden">
+            <div class="px-4 pt-4 pb-2 flex items-center justify-between">
+                <h2 class="section-title">Historia typów</h2>
+                <span class="text-xs text-muted">tylko mecze po blokadzie</span>
+            </div>
+            <ul id="g-history" class="divide-y divide-line"></ul>
+        </section>
+    </main>
+
+    <script src="/js/shared.js?v=__V__"></script>
+    <script src="/js/gracz.js?v=__V__"></script>
+</body>
+</html>

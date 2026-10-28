@@ -1,0 +1,41 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Dashboard -> New -> Blueprint -> wskaż to repozytorium. Sekrety (sync: false) wpisujesz w panelu Render.
+services:
+  - type: web
+    name: zuzlowy-typer
+    runtime: node
+    plan: free                # starter = bez usypiania; wtedy zadania w tle działają same
+    region: frankfurt         # najbliżej Polski
+    branch: main
+    # --include=dev: Tailwind jest w devDependencies, a przy NODE_ENV=production samo `npm ci` by go pominęło
+    buildCommand: npm ci --include=dev && npm run build:css
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: TZ
+        value: Europe/Warsaw
+      - key: MONGODB_URI          # MongoDB Atlas (darmowy klaster M0), region Frankfurt
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: CRON_SECRET          # losowy sekret dla /api/cron/run (GitHub Actions)
+        generateValue: true
+      - key: VAPID_PUBLIC_KEY     # npm run vapid
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:admin@example.com
+      - key: SCRAPER_URLS         # adresy stron z wynikami (spacja/przecinek); można też ustawić w panelu admina
+        sync: false
+      - key: SCRAPE_INTERVAL_MINUTES
+        value: "60"
+      - key: REMINDER_MINUTES
+        value: "120"
+      - key: LEGACY_SEASON
+        value: "2026"
