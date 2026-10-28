@@ -144,6 +144,7 @@ module.exports = function fakeModels() {
         ResultDraft: makeModel('ResultDraft', { status: 'draft', warnings: [], blockers: [], notes: [], scrapedHome: null, scrapedAway: null }),
         PushSubscription: makeModel('PushSubscription', { nickname: null, isAdmin: false, failures: 0 }, 'endpoint'),
         NotificationLog: makeModel('NotificationLog', {}, 'key'),
-        JobRun: makeModel('JobRun', {})
+        JobRun: makeModel('JobRun', {}),
+        AppSetting: makeModel('AppSetting', { value: null }, 'key')
     };
 };

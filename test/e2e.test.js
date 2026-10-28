@@ -439,6 +439,7 @@ async function freshMatch(startsInMin, extra = {}) {
 
     await runAdminTests();
     await runFinaleTests();
+    await runPushKeyTests();   // na końcu: włącza powiadomienia dla całego serwera
 
     await browser.close();
     server.close();
@@ -965,5 +966,62 @@ async function runFinaleTests() {
             Object.assign(season, keep);
             cache.invalidate();
         }
+    });
+}
+
+/* ================================================================
+   POWIADOMIENIA: klucze serwera z bazy (Render bez kluczy VAPID)
+================================================================ */
+/** Atrapa PushManagera: telefon ma subskrypcję na stary klucz serwera (sprzed zmiany kluczy). */
+function fakePushManager() {
+    const STORE = 'e2e-push-sub';
+    window.__push = { log: [] };
+    // headless Chromium zawsze odpowiada "denied", nawet po przyznaniu uprawnienia
+    Object.defineProperty(Notification, 'permission', { get: () => 'granted', configurable: true });
+    Notification.requestPermission = async () => 'granted';
+    const make = (key, endpoint) => ({
+        endpoint,
+        options: { applicationServerKey: new Uint8Array(key).buffer },
+        unsubscribe: async () => { window.__push.log.push(`unsubscribe ${endpoint}`); localStorage.removeItem(STORE); return true; },
+        toJSON: () => ({ endpoint, keys: { p256dh: 'p256dh-e2e', auth: 'auth-e2e' } })
+    });
+    PushManager.prototype.getSubscription = async () => {
+        const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
+        return saved ? make(saved.key, saved.endpoint) : make(new Array(65).fill(7), 'https://push.example/e2e-stary');
+    };
+    PushManager.prototype.subscribe = async opts => {
+        const key = Array.from(new Uint8Array(opts.applicationServerKey));
+        window.__push.log.push('subscribe');
+        localStorage.setItem(STORE, JSON.stringify({ key, endpoint: 'https://push.example/e2e-nowy' }));
+        return make(key, 'https://push.example/e2e-nowy');
+    };
+}
+
+async function runPushKeyTests() {
+    group('Powiadomienia: klucze serwera z bazy');
+
+    await test('telefon z subskrypcją na stary klucz serwera zakłada nową; z aktualnym kluczem nic nie zmienia', async () => {
+        const push = require('../services/push');
+        assert.strictEqual(await push.init(), 'db');      // pierwszy start na Render bez kluczy VAPID
+        push._setSenderForTests(async () => {});           // bez prawdziwej wysyłki
+        cache.invalidate();
+        const saved = p => p.waitForResponse(r => r.url().endsWith('/api/public/push/subscribe') && r.request().method() === 'POST');
+        const p = await newPage({ sw: true, init: fakePushManager });
+        try {
+            let posted = saved(p);
+            await p.goto(`${base}/typuj.html?id=${tokenOf(1)}`, { waitUntil: 'networkidle' });
+            assert.strictEqual((await posted).status(), 200);
+            assert.deepStrictEqual(await p.evaluate(() => window.__push.log), ['unsubscribe https://push.example/e2e-stary', 'subscribe']);
+            const key = await p.evaluate(() => JSON.parse(localStorage.getItem('e2e-push-sub')).key);
+            assert.deepStrictEqual(Buffer.from(key), Buffer.from(push.publicKey(), 'base64url'), 'nowa subskrypcja na klucz serwera');
+            const row = db.PushSubscription._rows.find(r => r.endpoint === 'https://push.example/e2e-nowy');
+            assert.ok(row && row.nickname === PLAYERS[1], 'serwer zapisał nową subskrypcję gracza');
+
+            posted = saved(p);
+            await p.reload({ waitUntil: 'networkidle' });
+            assert.strictEqual((await posted).status(), 200);
+            assert.deepStrictEqual(await p.evaluate(() => window.__push.log), [], 'subskrypcja z aktualnym kluczem zostaje');
+            noErrors(p);
+        } finally { await close(p); }
     });
 }

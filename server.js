@@ -137,14 +137,16 @@ async function start() {
     if (!process.env.ADMIN_PASSWORD) {
         console.warn('⚠️  Brak ADMIN_PASSWORD — panel admina będzie niedostępny.');
     }
-    if (!push.isConfigured()) {
-        console.warn('ℹ️  Brak kluczy VAPID — powiadomienia push wyłączone (npm run vapid).');
-    }
     try {
         await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 15000 });
         console.log('✅ Połączono z bazą MongoDB.');
         const season = await bootstrap();
         console.log(`🏁 Aktywny sezon: ${season.year} (${season.label || 'bez nazwy'}).`);
+        // błąd kluczy nie zatrzymuje serwera - najwyżej nie będzie powiadomień
+        const keys = await push.init().catch(e => { console.error('⚠️  Klucze VAPID:', e.message); return null; });
+        console.log(keys === 'env' ? '🔔 Powiadomienia push: klucze ze zmiennych środowiskowych.'
+            : keys === 'db' ? '🔔 Powiadomienia push: klucze z bazy (wygenerowane automatycznie).'
+            : 'ℹ️  Powiadomienia push wyłączone.');
     } catch (err) {
         console.error('❌ Błąd połączenia z bazą:', err.message);
         process.exit(1);

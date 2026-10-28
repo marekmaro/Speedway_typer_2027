@@ -25,14 +25,11 @@ services:
         sync: false
       - key: CRON_SECRET          # losowy sekret dla /api/cron/run (GitHub Actions)
         generateValue: true
-      - key: VAPID_PUBLIC_KEY     # npm run vapid
-        sync: false
-      - key: VAPID_PRIVATE_KEY
-        sync: false
+      # Klucze push (VAPID) serwer generuje sam przy pierwszym starcie i trzyma w bazie.
+      # Własne (npm run vapid) dodasz w Environment jako VAPID_PUBLIC_KEY i VAPID_PRIVATE_KEY.
       - key: VAPID_SUBJECT
         value: mailto:admin@example.com
-      - key: SCRAPER_URLS         # adresy stron z wynikami (spacja/przecinek); można też ustawić w panelu admina
-        sync: false
+      # Źródła wyników ustawiasz w panelu admina (Sezon -> Wyniki auto) albo w zmiennej SCRAPER_URLS.
       - key: SCRAPE_INTERVAL_MINUTES
         value: "60"
       - key: REMINDER_MINUTES

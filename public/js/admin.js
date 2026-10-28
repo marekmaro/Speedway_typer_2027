@@ -1228,7 +1228,7 @@ function renderSystem() {
     return `
     <section class="card card-pad mb-4">
         <h2 class="section-title mb-1">🔔 Powiadomienia</h2>
-        <p class="text-sm text-muted mb-3">${j ? (j.push.enabled ? `Włączone · ${j.push.subscriptions} urządzeń (w tym ${j.push.admins} admina).` : 'Wyłączone — ustaw VAPID_PUBLIC_KEY i VAPID_PRIVATE_KEY (npm run vapid).') : ''}</p>
+        <p class="text-sm text-muted mb-3">${j ? (j.push.enabled ? `Włączone · ${j.push.subscriptions} urządzeń (w tym ${j.push.admins} admina).${j.push.source === 'db' ? ' Klucze wygenerował serwer.' : ''}` : 'Wyłączone — serwer nie przygotował kluczy VAPID (szczegóły w logach serwera).') : ''}</p>
         <div class="flex flex-wrap gap-2">
             <button data-act="admin-push" class="btn-primary btn-sm">Powiadamiaj ten telefon o wynikach</button>
             <button data-act="admin-push-test" class="btn-ghost btn-sm">Wyślij test</button>

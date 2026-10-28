@@ -202,12 +202,23 @@ window.T = (function () {
             : 'Ta przeglądarka nie obsługuje powiadomień.');
         const { enabled, publicKey } = await getJson('/api/public/push/key');
         if (!enabled) throw new Error('Powiadomienia nie są jeszcze skonfigurowane na serwerze.');
-        const perm = await Notification.requestPermission();
+        // przy odświeżaniu w tle zgoda już jest - Safari nie lubi pytania bez dotknięcia ekranu
+        const perm = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
         if (perm !== 'granted') throw new Error('Nie udzielono zgody na powiadomienia.');
         const reg = await navigator.serviceWorker.ready;
+        const key = urlBase64ToUint8Array(publicKey);
         let sub = await reg.pushManager.getSubscription();
-        if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+        // subskrypcja na stary klucz serwera (np. po zmianie kluczy VAPID) nic już nie dostanie
+        if (sub && !sameServerKey(sub, key)) { await sub.unsubscribe().catch(() => {}); sub = null; }
+        if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
         return postJson(saveUrl, { ...extra, subscription: sub.toJSON() }, headers);
+    }
+
+    function sameServerKey(sub, key) {
+        const k = sub.options && sub.options.applicationServerKey;
+        if (!k) return true;   // przeglądarka nie podaje klucza - zostawiamy subskrypcję
+        const a = new Uint8Array(k);
+        return a.length === key.length && a.every((b, i) => b === key[i]);
     }
 
     async function disablePush() {

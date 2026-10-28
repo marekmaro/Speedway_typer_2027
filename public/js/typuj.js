@@ -768,8 +768,9 @@ async function setupPush() {
 
     const sub = await T.currentPush().catch(() => null);
     if (sub && Notification.permission === 'granted') {
-        // Odśwież powiązanie subskrypcji z graczem (np. po regeneracji linku)
-        T.postJson('/api/public/push/subscribe', { token, subscription: sub.toJSON() }).catch(() => {});
+        // Odśwież powiązanie subskrypcji z graczem (np. po regeneracji linku);
+        // po zmianie kluczy serwera enablePush po cichu zakłada nową subskrypcję
+        T.enablePush('/api/public/push/subscribe', { token }).catch(() => {});
         return;
     }
     if (dismissed || (window.Notification && Notification.permission === 'denied')) return;

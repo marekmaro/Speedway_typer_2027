@@ -1,15 +1,15 @@
 # Raport z testów — Żużlowy Typer 3
 
-Stan na 28 października 2026. Wszystkie testy przechodzą: **196 automatycznych + 50 w przeglądarce** (pakiet E2E
+Stan na 28 października 2026. Wszystkie testy przechodzą: **199 automatycznych + 51 w przeglądarce** (pakiet E2E
 uruchomiony dwa razy z rzędu, bez niestabilnych wyników) + **symulacja całego sezonu** (15 niezmienników,
 51 487 sprawdzeń, 0 błędów) i Monte Carlo zasad (2000 sezonów) — szczegóły w [SYMULACJA.md](SYMULACJA.md).
 
 | Pakiet | Plik | Liczba | Uruchomienie |
 |---|---|---|---|
 | Punktacja, regulamin, tabela, statystyki, parser scrapera | `test/scoring.test.js` | 63 | `npm test` |
-| API (blokady, joker, admin) | `test/api.test.js` | 46 | `npm test` |
+| API (blokady, joker, admin, klucze push) | `test/api.test.js` | 49 | `npm test` |
 | Scenariusze z życia typera (cała aplikacja) | `test/scenarios.test.js` | 87 | `npm test` |
-| Przeglądarka: strona (Start, zakładki, zasady), panel gracza, PWA, panel admina, Mistrz Typera | `test/e2e.test.js` | 50 | `npm run test:e2e` |
+| Przeglądarka: strona (Start, zakładki, zasady), panel gracza, PWA, panel admina, Mistrz Typera, powiadomienia | `test/e2e.test.js` | 51 | `npm run test:e2e` |
 | Cały sezon przez API + Monte Carlo zasad | `scripts/symulacja.js` | 15 niezmienników | `npm run symulacja` |
 
 Scenariusze API przechodzą także przy serwerze w strefach UTC, America/New_York i Asia/Tokyo.
@@ -40,7 +40,8 @@ pucharu i subskrypcji, usuwanie z sezonu / całkowite, typ wpisany przez admina;
 generator terminarza w czasie polskim (także przy zmianie czasu), import JSON, dodawanie meczu, zmiana
 punktacji z przeliczeniem, blokada 0 min, zamknięcie i otwarcie sezonu; przypomnienia push (tylko
 potrzebujący, bez powtórek), push z punktami (raz), usuwanie martwych subskrypcji, alert o awarii scrapera
-(raz dziennie); kopia zapasowa → przywrócenie, cron z sekretem, limit prób logowania, manifest PWA,
+(raz dziennie); klucze push bez konfiguracji (generowane raz i trzymane w bazie, po restarcie te same,
+własne klucze z env mają pierwszeństwo, błędne wyłączają tylko powiadomienia); kopia zapasowa → przywrócenie, cron z sekretem, limit prób logowania, manifest PWA,
 wersjonowanie plików, świeża instalacja i migracja z v1, konfiguracja buildu na Render.
 
 **Regulamin = działanie aplikacji:** każde zdanie regulaminu na stronie ma test: przykład punktacji, remis
@@ -65,7 +66,8 @@ na żywo), puchar, play-off, zamknięcie sezonu z niespodzianką. Po każdej kol
 stronach i widokach admina, nawigacja i „wstecz”, profil z wykresami i podpowiedziami, autozapis
 i autoprzeskok pól, joker, blokada w trakcie oglądania, dwa telefony jednego gracza, brak sieci i powrót,
 zegar telefonu przestawiony o 5 min, panel offline z service workera, pełne ścieżki admina (zatwierdzanie,
-wyniki, potwierdzenia, typ za gracza, przełożenia, walkower, gracze, sezon, puchar, kopia, wygasła sesja).
+wyniki, potwierdzenia, typ za gracza, przełożenia, walkower, gracze, sezon, puchar, kopia, wygasła sesja),
+telefon z subskrypcją na stary klucz serwera sam zakłada nową.
 
 ## Znalezione i naprawione błędy
 
@@ -101,6 +103,7 @@ wyniki, potwierdzenia, typ za gracza, przełożenia, walkower, gracze, sezon, pu
 | 28 | Push skracał nazwy inaczej niż strona *(symulacja)* | „Deweloperska Toruń” | wspólna reguła, test pilnuje zgodności |
 | 29 | „Ex aequo z X” przy równych punktach, choć X jest wyżej przez dokładne | mylący napis w panelu gracza | „tyle samo punktów — wyżej przez dokładne” |
 | 30 | Kategoria 3 pkt w żużlu prawie nie występuje *(Monte Carlo)* | środkowy próg punktacji martwy (0% typów) | opcjonalna tolerancja różnicy (domyślnie bez zmian) |
+| 31 | Po zmianie kluczy push telefony po cichu przestawały dostawać powiadomienia | stara subskrypcja odświeżana przy każdym wejściu | telefon porównuje klucz serwera i zakłada nową subskrypcję |
 
 Błędy 25–28 znalazła symulacja całego sezonu (przy pierwszym uruchomieniu 9 wyników wpisanych niezgodnie
 z oficjalnym protokołem), a 23 i 30 — Monte Carlo zasad. Każda poprawka ma test, który bez niej nie przechodzi. Błąd nr 1 odtworzyłem dodatkowo prawdziwym
@@ -114,4 +117,4 @@ przed poprawką (wpisana cyfra rzeczywiście znikała).
 - **Dostarczenie powiadomień push na telefon** — testowana jest logika wysyłki (atrapa), nie serwery
   Google/Apple. Po wdrożeniu: *System → Powiadamiaj ten telefon → Wyślij test*.
 - **Prawdziwe MongoDB** — testy używają atrapy bazy w pamięci. Zapytania są proste, ale pierwszy start
-  na Atlasie warto obejrzeć w logach Render.
+  na Atlasie warto obejrzeć w logach Render (powinna być linia „🔔 Powiadomienia push: klucze z bazy”).

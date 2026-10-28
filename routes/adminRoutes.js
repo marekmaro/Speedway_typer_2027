@@ -792,7 +792,7 @@ router.get('/jobs', wrap(async (req, res) => {
     const runs = await JobRun.find().sort({ createdAt: -1 }).lean();
     res.json({
         runs: runs.slice(0, 20).map(r => ({ job: r.job, ok: r.ok, summary: r.summary, createdAt: r.createdAt, details: r.details })),
-        push: { enabled: push.isConfigured(), subscriptions: await PushSubscription.countDocuments({}), admins: await PushSubscription.countDocuments({ isAdmin: true }) },
+        push: { enabled: push.isConfigured(), source: push.keySource(), subscriptions: await PushSubscription.countDocuments({}), admins: await PushSubscription.countDocuments({ isAdmin: true }) },
         scraper: { envUrls: String(process.env.SCRAPER_URLS || '').split(/[\s,]+/).filter(Boolean) }
     });
 }));
@@ -811,7 +811,7 @@ router.post('/jobs/reminders', wrap(async (req, res) => {
 /* ================= POWIADOMIENIA ADMINA ================= */
 
 router.post('/push/subscribe', wrap(async (req, res) => {
-    if (!push.isConfigured()) return res.status(503).json({ error: 'Brak kluczy VAPID w zmiennych środowiskowych.' });
+    if (!push.isConfigured()) return res.status(503).json({ error: 'Powiadomienia push są wyłączone na serwerze (brak kluczy VAPID).' });
     try { await push.saveSubscription(req.body.subscription, { isAdmin: true, userAgent: req.headers['user-agent'] }); }
     catch (e) { return res.status(400).json({ error: e.message }); }
     res.json({ message: 'To urządzenie dostanie powiadomienia admina (nowe wyniki do zatwierdzenia).' });

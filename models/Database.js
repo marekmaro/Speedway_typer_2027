@@ -168,6 +168,12 @@ const jobRunSchema = new mongoose.Schema({
 }, { timestamps: true });
 jobRunSchema.index({ createdAt: -1 });
 
+/* v3: ustawienia serwera trzymane w bazie (np. klucze VAPID wygenerowane przy pierwszym starcie). */
+const appSettingSchema = new mongoose.Schema({
+    key: { type: String, required: true, unique: true },
+    value: { type: mongoose.Schema.Types.Mixed, default: null }
+}, { timestamps: true });
+
 module.exports = {
     Season: mongoose.model('Season', seasonSchema),
     Match: mongoose.model('Match', matchSchema),
@@ -178,5 +184,6 @@ module.exports = {
     ResultDraft: mongoose.model('ResultDraft', resultDraftSchema),
     PushSubscription: mongoose.model('PushSubscription', pushSubscriptionSchema),
     NotificationLog: mongoose.model('NotificationLog', notificationLogSchema),
-    JobRun: mongoose.model('JobRun', jobRunSchema)
+    JobRun: mongoose.model('JobRun', jobRunSchema),
+    AppSetting: mongoose.model('AppSetting', appSettingSchema)
 };

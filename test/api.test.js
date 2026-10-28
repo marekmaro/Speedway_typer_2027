@@ -422,6 +422,64 @@ async function seed() {
         assert.strictEqual(ok.status, 200);
     });
 
+    console.log('\nKlucze VAPID (powiadomienia bez ręcznej konfiguracji):');
+    // świeża instancja modułu = restart serwera; trasy dalej używają wspólnej
+    const pushPath = require.resolve('../services/push');
+    const freshPush = () => {
+        const shared = require.cache[pushPath];
+        delete require.cache[pushPath];
+        const mod = require('../services/push');
+        require.cache[pushPath] = shared;
+        return mod;
+    };
+    const ownEnv = { pub: process.env.VAPID_PUBLIC_KEY, priv: process.env.VAPID_PRIVATE_KEY };
+    const clearEnv = () => { delete process.env.VAPID_PUBLIC_KEY; delete process.env.VAPID_PRIVATE_KEY; };
+    clearEnv();
+
+    await test('bez kluczy w env serwer generuje parę VAPID raz i trzyma ją w bazie', async () => {
+        const first = freshPush();
+        assert.strictEqual(first.isConfigured(), false);
+        assert.strictEqual(await first.init(), 'db');
+        assert.ok(first.isConfigured());
+        assert.strictEqual(first.keySource(), 'db');
+        const stored = await db.AppSetting.findOne({ key: 'vapid' });
+        assert.ok(stored && stored.value.publicKey && stored.value.privateKey);
+        assert.strictEqual(first.publicKey(), stored.value.publicKey);
+        // restart: ta sama para, więc subskrypcje na telefonach dalej działają
+        const second = freshPush();
+        assert.strictEqual(await second.init(), 'db');
+        assert.strictEqual(second.publicKey(), stored.value.publicKey);
+        assert.strictEqual(db.AppSetting._rows.filter(r => r.key === 'vapid').length, 1);
+    });
+
+    await test('klucze ze zmiennych środowiskowych mają pierwszeństwo przed bazą', async () => {
+        const own = require('web-push').generateVAPIDKeys();
+        process.env.VAPID_PUBLIC_KEY = own.publicKey;
+        process.env.VAPID_PRIVATE_KEY = own.privateKey;
+        try {
+            const mod = freshPush();
+            assert.strictEqual(await mod.init(), 'env');
+            assert.strictEqual(mod.keySource(), 'env');
+            assert.strictEqual(mod.publicKey(), own.publicKey);
+            assert.notStrictEqual((await db.AppSetting.findOne({ key: 'vapid' })).value.publicKey, own.publicKey);
+        } finally { clearEnv(); }
+    });
+
+    await test('błędne klucze w env wyłączają powiadomienia, serwer działa dalej', async () => {
+        process.env.VAPID_PUBLIC_KEY = 'zly-klucz';
+        process.env.VAPID_PRIVATE_KEY = 'zly-klucz';
+        const quiet = console.error;
+        console.error = () => {};
+        try {
+            const mod = freshPush();
+            assert.strictEqual(await mod.init(), null);
+            assert.strictEqual(mod.isConfigured(), false);
+            assert.strictEqual(mod.publicKey(), null);
+        } finally { console.error = quiet; clearEnv(); }
+    });
+    if (ownEnv.pub) process.env.VAPID_PUBLIC_KEY = ownEnv.pub;
+    if (ownEnv.priv) process.env.VAPID_PRIVATE_KEY = ownEnv.priv;
+
     console.log('\nPowiadomienia push (v3):');
     const sent = [];
     push._setSenderForTests(async (sub, body) => { sent.push({ endpoint: sub.endpoint, body: JSON.parse(body) }); });

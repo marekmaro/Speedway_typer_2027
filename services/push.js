@@ -1,31 +1,60 @@
 /* ------------------------------------------------------------------
    Powiadomienia Web Push (PWA).
-   Klucze VAPID generujesz raz: `npm run vapid` i wklejasz do zmiennych środowiskowych.
-   Bez kluczy wszystko działa, tylko powiadomienia są wyłączone.
+   Klucze VAPID: własne (`npm run vapid`) wpisujesz w VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY.
+   Bez nich serwer przy pierwszym starcie generuje parę sam i trzyma ją w bazie (init()),
+   więc powiadomienia działają od razu po wdrożeniu.
 ------------------------------------------------------------------- */
 const webpush = require('web-push');
-const { PushSubscription, NotificationLog } = require('../models/Database');
+const { PushSubscription, NotificationLog, AppSetting } = require('../models/Database');
 
 let configured = null;
+let keys = null;          // { publicKey, privateKey, source: 'env' | 'db' }
 let sender = (sub, body, opts) => webpush.sendNotification(sub, body, opts);
 
-function isConfigured() {
-    if (configured !== null) return configured;
-    const { VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT } = process.env;
-    if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
-        try {
-            webpush.setVapidDetails(VAPID_SUBJECT || 'mailto:admin@example.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
-            configured = true;
-        } catch (e) {
-            console.error('⚠️  Błędne klucze VAPID - powiadomienia wyłączone:', e.message);
-            configured = false;
-        }
-    } else configured = false;
+function configure(publicKey, privateKey, source) {
+    try {
+        webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@example.com', publicKey, privateKey);
+        keys = { publicKey, privateKey, source };
+        configured = true;
+    } catch (e) {
+        console.error('⚠️  Błędne klucze VAPID - powiadomienia wyłączone:', e.message);
+        configured = false;
+    }
     return configured;
 }
 
+const hasEnvKeys = () => Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+
+function isConfigured() {
+    if (configured !== null) return configured;
+    // bez kluczy w env nie zapamiętujemy "false" - init() może jeszcze wczytać je z bazy
+    return hasEnvKeys() ? configure(process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY, 'env') : false;
+}
+
+/**
+ * Raz po połączeniu z bazą. Klucze ze zmiennych środowiskowych mają pierwszeństwo; bez nich
+ * para generuje się przy pierwszym starcie i zostaje w bazie, więc restart ani nowy deploy
+ * nie unieważniają subskrypcji na telefonach. Zwraca źródło kluczy: 'env', 'db' albo null.
+ */
+async function init() {
+    if (hasEnvKeys()) return isConfigured() ? 'env' : null;
+    // $setOnInsert: przy równoległych startach wszystkie instancje dostaną tę samą parę
+    const doc = await AppSetting.findOneAndUpdate(
+        { key: 'vapid' },
+        { $setOnInsert: { value: webpush.generateVAPIDKeys() } },
+        { upsert: true, new: true }
+    ).lean();
+    const v = doc && doc.value;
+    return v && v.publicKey && v.privateKey && configure(v.publicKey, v.privateKey, 'db') ? 'db' : null;
+}
+
 function publicKey() {
-    return isConfigured() ? process.env.VAPID_PUBLIC_KEY : null;
+    return isConfigured() && keys ? keys.publicKey : null;
+}
+
+/** Skąd są klucze: 'env', 'db' albo null (do panelu admina). */
+function keySource() {
+    return isConfigured() && keys ? keys.source : null;
 }
 
 function validSubscription(sub) {
@@ -93,6 +122,6 @@ async function onceOnly(key) {
 function _setSenderForTests(fn) { sender = fn; configured = true; }
 
 module.exports = {
-    isConfigured, publicKey, saveSubscription, removeSubscription, sendTo,
+    init, isConfigured, publicKey, keySource, saveSubscription, removeSubscription, sendTo,
     notifyPlayer, notifyAdmins, onceOnly, validSubscription, _setSenderForTests
 };

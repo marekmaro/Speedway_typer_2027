@@ -50,7 +50,7 @@ npm install
 cp .env.example .env     # uzupełnij MONGODB_URI i ADMIN_PASSWORD
 npm run build:css        # Tailwind -> public/css/app.css (plik jest też w repo)
 npm start                # http://localhost:3000
-npm test                 # 196 testów (jednostkowe, API, 87 scenariuszy), bez bazy
+npm test                 # 199 testów (jednostkowe, API, 87 scenariuszy), bez bazy
 npm run demo             # cała aplikacja na przykładowych danych, BEZ MongoDB (admin: "demo")
 npm run symulacja        # cały sezon w aplikacji + Monte Carlo zasad -> SYMULACJA.md
 npm run symulacja -- --serve   # ...i obejrzyj zakończony sezon (podium, zdrapka mistrza) na :3000
@@ -60,7 +60,7 @@ Kontrola stanu: `GET /healthz` (baza, push, wersja plików).
 
 ### Testy w przeglądarce (opcjonalnie)
 
-50 testów E2E klika aplikację w prawdziwym Chromium (widok telefonu i komputera): typowanie,
+51 testów E2E klika aplikację w prawdziwym Chromium (widok telefonu i komputera): typowanie,
 autozapis, joker, blokadę w trakcie, dwa telefony jednego gracza, brak sieci, źle ustawiony zegar,
 PWA offline, cały panel admina oraz koniec sezonu (baner mistrza, zdrapka, dyplom). Wymagają Playwrighta, którego nie ma w zależnościach (żeby nie
 spowalniał deployu):
@@ -72,15 +72,20 @@ npm run test:e2e
 
 ## Wdrożenie na Render
 
+Instrukcja krok po kroku, bez wiedzy technicznej: **[WDROZENIE.md](WDROZENIE.md)**. W skrócie:
+
 1. **MongoDB Atlas:** darmowy klaster M0 w regionie *Frankfurt*, użytkownik bazy z długim hasłem,
    Network Access: `0.0.0.0/0` (Render nie ma stałego IP na planie free).
-2. **Klucze push:** `npm run vapid` → zapisz `publicKey` i `privateKey`.
+2. **Klucze push** nie są potrzebne: przy pierwszym starcie serwer generuje parę VAPID i trzyma ją
+   w bazie (kolekcja `appsettings`). Własne klucze (`npm run vapid`) wpisz w `VAPID_PUBLIC_KEY`
+   i `VAPID_PRIVATE_KEY` — mają pierwszeństwo, a telefony graczy przy następnym wejściu same
+   przepiszą subskrypcje na nowy klucz.
 3. **Render → New → Blueprint** → wskaż repozytorium. `render.yaml` tworzy usługę web
    (Frankfurt, Node 22, build `npm ci --include=dev && npm run build:css`, health check `/healthz`).
    `--include=dev` jest potrzebne: Render ustawia `NODE_ENV=production` także przy budowaniu,
    a wtedy samo `npm ci` pominęłoby Tailwinda i build by się wysypał.
-   W panelu uzupełnij sekrety: `MONGODB_URI`, `ADMIN_PASSWORD`, `VAPID_PUBLIC_KEY`,
-   `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, opcjonalnie `SCRAPER_URLS`. `CRON_SECRET` Render wygeneruje sam.
+   Render zapyta tylko o `MONGODB_URI` i `ADMIN_PASSWORD`; `CRON_SECRET` wygeneruje sam.
+   Źródła wyników wpisujesz w panelu admina (*Sezon → Wyniki auto*) albo w zmiennej `SCRAPER_URLS`.
 4. **Zadania w tle na planie free.** Darmowa instancja zasypia po 15 min, więc wbudowany
    harmonogram wtedy nie działa. Workflow `.github/workflows/cron.yml` co 30 min (10–22 UTC,
    marzec–październik) budzi serwer i wywołuje `POST /api/cron/run`. W GitHub → *Settings → Secrets
@@ -170,6 +175,8 @@ Nie ma oficjalnego API, a portale zmieniają HTML. Dlatego scraper **nigdy nie w
   meczów, raz na mecz. Gracz włącza je w swoim panelu. Na iPhonie działają po dodaniu do ekranu
   głównego (iOS 16.4+).
 - **Admin:** *System → Powiadamiaj ten telefon* — alert o nowych wynikach do zatwierdzenia.
+- **Klucze VAPID** serwer tworzy sam przy pierwszym starcie (log: „🔔 Powiadomienia push: klucze
+  z bazy”), więc powiadomienia działają od razu po wdrożeniu.
 
 ## Mistrz Typera i niespodzianka 🎁
 
