@@ -85,6 +85,14 @@ npm run test:e2e
 
 Wszystkie zmienne opisuje `.env.example`.
 
+> **Wgrywasz pliki przez stronę GitHuba („Add files via upload”)?** Pliki i katalogi zaczynające
+> się od kropki nie przechodzą — w repozytorium brakuje wtedy `.github/workflows/cron.yml`
+> (budzenie serwera i zadania w tle), `.gitignore` i `.env.example`. Workflow dodasz ręcznie:
+> *Add file → Create new file*, nazwa `.github/workflows/cron.yml`, wklej zawartość pliku z paczki.
+> Nigdy nie wgrywaj pliku `.env` ani katalogu `node_modules`.
+> Zamiast GitHub Actions możesz użyć cron-job.org: co 30 min `POST https://TWOJ-ADRES.onrender.com/api/cron/run?job=all`
+> z nagłówkiem `x-cron-secret: <CRON_SECRET>` (albo parametrem `&key=<CRON_SECRET>`).
+
 ## Zasady gry
 
 Typuje się **wynik meczu** (np. 47:43). Punktacja i blokada są ustawiane per sezon w panelu
