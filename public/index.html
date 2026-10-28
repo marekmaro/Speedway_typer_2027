@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Żużlowy Typer — Ekstraliga</title>
     <meta name="description" content="Typer żużlowej Ekstraligi dla znajomych: terminarz, wyniki, ranking typerów i Puchar Typerów.">
-    <meta name="theme-color" content="#0b1220">
+    <meta name="theme-color" content="#0a0f1c">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -15,20 +15,25 @@
 </head>
 <body class="pb-24 md:pb-10">
 
-    <!-- ===== NAGŁÓWEK ===== -->
-    <header class="bg-night text-white" style="padding-top: env(safe-area-inset-top)">
+    <!-- ===== NAGŁÓWEK: stadion nocą ===== -->
+    <header class="hero" style="padding-top: env(safe-area-inset-top)">
+        <svg class="hero-track" viewBox="0 0 360 220" fill="none" aria-hidden="true">
+            <ellipse cx="180" cy="110" rx="170" ry="96" stroke="white" stroke-width="22"/>
+            <ellipse cx="180" cy="110" rx="128" ry="58" stroke="white" stroke-width="2" stroke-dasharray="6 8"/>
+        </svg>
         <div class="mx-auto max-w-5xl px-4 pt-3 pb-4">
             <div class="flex items-center gap-3">
-                <img src="/icons/icon.svg" alt="" class="w-9 h-9 rounded-xl">
+                <img src="/icons/icon.svg" alt="" class="w-10 h-10 rounded-xl shadow-lift">
                 <div class="min-w-0 flex-1">
-                    <h1 id="page-title" class="text-lg font-black leading-tight truncate">Żużlowy Typer</h1>
-                    <div class="flex items-center gap-2 mt-0.5">
+                    <div class="logo-word">Żużlowy <span>Typer</span></div>
+                    <div class="flex items-center gap-2 mt-1">
+                        <h1 id="page-title" class="sr-only">Żużlowy Typer</h1>
                         <label for="season-select" class="sr-only">Sezon</label>
-                        <select id="season-select" class="bg-white/10 rounded-md px-1.5 py-0.5 text-xs font-bold text-white/90 border-0 max-w-[10rem]"></select>
+                        <select id="season-select" class="bg-white/10 rounded-md px-1.5 py-0.5 text-xs font-bold text-white/90 border-0 max-w-[11rem]"></select>
                         <span id="season-flag" class="chip bg-white/10 text-white/80"></span>
                     </div>
                 </div>
-                <a id="my-panel" href="#" class="hidden btn btn-sm bg-white text-night">Moje typy</a>
+                <a id="my-panel" href="#" class="hidden btn btn-sm bg-white text-night font-black italic uppercase">🏁 Moje typy</a>
             </div>
 
             <nav class="hidden md:flex gap-1 mt-4" aria-label="Sekcje">
@@ -39,19 +44,26 @@
                 <a href="#wiecej" class="toplink" data-tab="wiecej">Więcej</a>
             </nav>
 
-            <!-- najbliższa blokada -->
-            <div class="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-white/5 border border-white/10 px-4 py-3">
+            <!-- najbliższa blokada = taśma startowa -->
+            <div class="gate-panel mt-4">
                 <div class="min-w-0">
-                    <div class="text-[11px] font-bold uppercase tracking-wider text-white/50">Najbliższa blokada typów</div>
-                    <div id="countdown-match" class="text-sm font-semibold text-white/80 truncate">—</div>
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span id="countdown-lights" class="shrink-0"></span>
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-white/55 truncate">Blokada typów</span>
+                    </div>
+                    <div id="countdown-match" class="text-sm font-semibold text-white/85 truncate mt-1">—</div>
                 </div>
-                <div id="countdown-timer" class="font-mono text-xl font-black text-gold tabular-nums whitespace-nowrap">--:--</div>
+                <div id="countdown-timer" class="led-box text-xl whitespace-nowrap">--:--</div>
             </div>
         </div>
+        <div class="gate-stripe"></div>
     </header>
 
     <main class="mx-auto max-w-5xl px-4 py-4">
         <div id="load-error" class="hidden card card-pad mb-4 border-bad/40 text-bad font-bold"></div>
+
+        <!-- Mistrz Typera po zamknięciu sezonu -->
+        <section id="finale-banner" class="hidden mb-4" aria-live="polite"></section>
 
         <!-- ===== MECZE ===== -->
         <section id="tab-mecze" class="tab-panel" aria-labelledby="h-mecze">
@@ -61,17 +73,21 @@
                 <p class="text-sm text-muted">Admin wgra go w panelu (generator kolejek albo import JSON).</p>
             </div>
             <div id="round-nav" class="scroller mb-3" role="tablist" aria-label="Kolejki"></div>
-            <div id="round-title" class="eyebrow mb-2"></div>
+            <div class="mb-3">
+                <h3 id="round-title" class="display text-2xl"></h3>
+                <p id="round-sub" class="text-xs font-semibold text-muted mt-1"></p>
+            </div>
             <div id="matches-container" class="grid gap-3 lg:grid-cols-2">
-                <div class="skeleton h-40"></div><div class="skeleton h-40"></div>
+                <div class="skeleton h-44"></div><div class="skeleton h-44"></div>
             </div>
         </section>
 
         <!-- ===== TABELA ===== -->
         <section id="tab-tabela" class="tab-panel hidden" aria-labelledby="h-tabela">
             <div class="card overflow-hidden">
-                <div class="flex items-center justify-between px-4 pt-4 pb-2">
-                    <h2 id="h-tabela" class="section-title">Tabela Ekstraligi</h2>
+                <div class="gate-stripe"></div>
+                <div class="flex flex-wrap items-center justify-between gap-2 px-4 pt-4 pb-2">
+                    <h2 id="h-tabela" class="section-title text-lg">Tabela Ekstraligi</h2>
                     <span class="text-[11px] text-muted font-semibold">2 pkt za zwycięstwo · 1 za remis · +1 za dwumecz</span>
                 </div>
                 <table class="w-full text-sm">
@@ -88,15 +104,22 @@
                     </thead>
                     <tbody id="league-table-body"></tbody>
                 </table>
-                <p id="table-notes" class="px-4 py-3 text-xs text-muted border-t border-line hidden"></p>
+                <div class="flex flex-wrap gap-x-4 gap-y-1 px-4 py-3 text-[11px] font-semibold text-muted border-t border-line">
+                    <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-ok"></i>play-off (1–4)</span>
+                    <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-bad"></i>spadek</span>
+                </div>
+                <p id="table-notes" class="px-4 pb-3 text-xs text-muted hidden"></p>
             </div>
         </section>
 
         <!-- ===== RANKING ===== -->
         <section id="tab-ranking" class="tab-panel hidden space-y-4" aria-labelledby="h-ranking">
+            <div id="podium-card" class="card card-pad hidden">
+                <div id="podium" class="podium"></div>
+            </div>
             <div class="card overflow-hidden">
                 <div class="flex items-center justify-between px-4 pt-4 pb-2">
-                    <h2 id="h-ranking" class="section-title">Klasyfikacja typerów</h2>
+                    <h2 id="h-ranking" class="section-title text-lg">Klasyfikacja typerów</h2>
                     <span class="text-[11px] text-muted font-semibold">dotknij, by zobaczyć profil</span>
                 </div>
                 <ol id="ranking-list" class="divide-y divide-line"></ol>
@@ -115,9 +138,14 @@
 
         <!-- ===== PUCHAR ===== -->
         <section id="tab-puchar" class="tab-panel hidden" aria-labelledby="h-puchar">
-            <div class="card card-pad mb-3">
-                <h2 id="h-puchar" class="section-title">🏆 Puchar Typerów</h2>
-                <p class="text-sm text-muted mt-1">Pojedynki 1 na 1: wygrywa ten, kto zdobędzie więcej punktów w wyznaczonej kolejce.</p>
+            <div class="card card-pad mb-3 relative overflow-hidden">
+                <div class="flex items-start gap-3">
+                    <span class="text-4xl" aria-hidden="true">🏆</span>
+                    <div>
+                        <h2 id="h-puchar" class="section-title text-lg">Puchar Typerów</h2>
+                        <p class="text-sm text-muted mt-1">Pojedynki 1 na 1, jak bieg dwóch zawodników: wygrywa ten, kto zdobędzie więcej punktów w wyznaczonej kolejce.</p>
+                    </div>
+                </div>
             </div>
             <div id="cup-container" class="grid gap-3 sm:grid-cols-2"></div>
         </section>
@@ -128,10 +156,10 @@
 
             <div class="card card-pad">
                 <h3 class="section-title mb-1">⚔️ Pojedynek H2H</h3>
-                <p class="text-sm text-muted mb-3">Porównaj dwóch typerów na meczach, które obaj typowali.</p>
+                <p class="text-sm text-muted mb-3">Czerwony kask kontra niebieski — porównaj dwóch typerów na meczach, które obaj typowali.</p>
                 <div class="grid grid-cols-[1fr_auto_1fr] gap-2 items-center">
                     <select id="h2h-a" class="input" aria-label="Gracz 1"></select>
-                    <span class="font-black text-muted">vs</span>
+                    <span class="vs">vs</span>
                     <select id="h2h-b" class="input" aria-label="Gracz 2"></select>
                 </div>
                 <label class="flex items-center gap-2 mt-3 text-sm font-semibold text-muted">
@@ -140,9 +168,15 @@
                 <div id="h2h-result" class="mt-4"></div>
             </div>
 
+            <div class="card card-pad">
+                <h3 class="section-title mb-1">🏛️ Galeria mistrzów</h3>
+                <p class="text-xs text-muted mb-3">Mistrzowie Typera z zamkniętych sezonów</p>
+                <div id="hall-of-fame" class="grid gap-2 sm:grid-cols-2"><div class="skeleton h-16"></div></div>
+            </div>
+
             <div class="card overflow-hidden">
                 <div class="px-4 pt-4 pb-2">
-                    <h3 class="section-title">🏛️ Ranking wszech czasów</h3>
+                    <h3 class="section-title">📈 Ranking wszech czasów</h3>
                     <p class="text-xs text-muted">Suma punktów ze wszystkich sezonów · 🏆 = tytuły mistrza typera</p>
                 </div>
                 <ol id="alltime-list" class="divide-y divide-line"><li class="p-4"><div class="skeleton h-10"></div></li></ol>
@@ -164,7 +198,7 @@
                     <span class="section-title">📜 Regulamin</span>
                     <span class="text-muted group-open:rotate-180 transition">▾</span>
                 </summary>
-                <div id="rules-content" class="px-4 pb-5 space-y-5 text-sm leading-relaxed"></div>
+                <div id="rules-content" class="px-4 pb-5 grid gap-3 md:grid-cols-2 text-sm leading-relaxed"></div>
             </details>
 
             <div id="install-card" class="card card-pad hidden">
@@ -176,6 +210,8 @@
             <p class="text-center"><a href="/admin" class="text-xs font-bold text-faint hover:text-muted">Panel administratora</a></p>
         </section>
     </main>
+
+    <a id="my-fab" href="#" class="fab hidden" aria-label="Moje typy"><span class="text-lg" aria-hidden="true">🏁</span>Typuj</a>
 
     <!-- ===== DOLNA NAWIGACJA (telefon) ===== -->
     <nav class="tabbar grid-cols-5" aria-label="Sekcje">

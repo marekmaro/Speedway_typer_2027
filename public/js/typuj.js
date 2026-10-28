@@ -84,6 +84,8 @@ async function refresh() {
 
 function renderAll() {
     renderHeader();
+    renderChampion();
+    renderRoundWin();
     renderLongTerm();
     renderRoundNav();
     renderMatches();
@@ -96,6 +98,7 @@ function renderAll() {
 function renderHeader() {
     const r = D.ranking;
     document.getElementById('p-nick').textContent = D.player.nickname;
+    document.getElementById('p-helmet').innerHTML = T.helmet(D.player.nickname, { size: 'lg', medal: D.medal || null });
     document.getElementById('p-rank').textContent = r.position ? `${r.position}/${r.totalPlayers}` : '–';
     document.getElementById('p-pts').textContent = r.points;
     document.getElementById('p-snipers').textContent = r.snipers;
@@ -112,11 +115,17 @@ function renderHeader() {
         seasonBox.textContent = D.season.label || `Sezon ${D.season.year}`;
     }
 
+    // Pościg w rankingu. "Ex aequo" tylko przy pełnym remisie - przy równych punktach decydują dokładne trafienia.
     const chase = document.getElementById('p-chasing');
-    if (r.chasing && r.chasing.gap === 0) chase.textContent = `🤝 Ex aequo z: ${r.chasing.nickname}`;
+    if (r.chasing && r.chasing.samePosition) chase.textContent = `🤝 Ex aequo z: ${r.chasing.nickname}`;
+    else if (r.chasing && r.chasing.gap === 0) chase.textContent = `🎯 Tyle samo punktów co ${r.chasing.nickname} — wyżej przez dokładne trafienia`;
     else if (r.chasing) chase.textContent = `🔥 Gonisz: ${r.chasing.nickname} (−${r.chasing.gap} pkt)`;
-    else if (r.totalPlayers > 1 && r.points > 0) chase.textContent = r.chased ? `🏆 Prowadzisz (+${r.chased.gap} pkt przewagi)` : '🏆 Prowadzisz!';
-    else chase.textContent = '';
+    else if (r.totalPlayers > 1 && r.points > 0) {
+        if (!r.chased) chase.textContent = '🏆 Prowadzisz!';
+        else if (r.chased.samePosition) chase.textContent = `🏆 Prowadzisz ex aequo z: ${r.chased.nickname}`;
+        else if (r.chased.gap === 0) chase.textContent = `🏆 Prowadzisz — tyle samo punktów co ${r.chased.nickname}, ale więcej dokładnych trafień`;
+        else chase.textContent = `🏆 Prowadzisz (+${r.chased.gap} pkt przewagi)`;
+    } else chase.textContent = '';
 
     const blocked = document.getElementById('blocked-box');
     const off = D.player.isActive === false;
@@ -136,11 +145,17 @@ function tick() {
     if (!D) return;
     const el = document.getElementById('countdown');
     const info = document.getElementById('countdown-match');
+    const lights = document.getElementById('countdown-lights');
     const m = nextOpenMatch();
-    if (!m) { el.textContent = '—'; info.textContent = 'Brak otwartych meczów'; }
-    else {
-        el.textContent = T.countdown(T.lockTime(m, D.season.lockMinutes)) || '—';
-        info.textContent = `${T.shortName(m.homeTeam)} – ${T.shortName(m.awayTeam)}`;
+    if (!m) {
+        el.textContent = '—'; el.classList.add('idle');
+        info.textContent = D.season.isFinished ? 'Sezon zakończony' : 'Brak otwartych meczów';
+        lights.innerHTML = T.startLights(null).html;
+    } else {
+        const lock = T.lockTime(m, D.season.lockMinutes);
+        el.textContent = T.countdown(lock) || '—'; el.classList.remove('idle');
+        info.textContent = `${T.shortName(m.homeTeam)} – ${T.shortName(m.awayTeam)}${hasPred(myPred(m._id)) ? ' · ✓ masz typ' : ' · brak typu!'}`;
+        lights.innerHTML = T.startLights(lock - T.now()).html;
     }
     // Odliczanie na kartach + automatyczne zamknięcie karty, gdy minie blokada
     const now = T.now();
@@ -176,8 +191,9 @@ function renderLongTerm() {
         if (ltDirty) s.value = keep;                       // niezapisany wybór gracza ma pierwszeństwo
         else if (D.longTerm && D.longTerm[id]) s.value = D.longTerm[id];
         s.disabled = locked;
-        s.onchange = locked ? null : () => { ltDirty = true; markDirty(); scheduleSave(); };
+        s.onchange = locked ? null : () => { syncLtOptions(); ltDirty = true; markDirty(); scheduleSave(); };
     });
+    syncLtOptions();
     const missing = !locked && !(D.longTerm && D.longTerm.champion && D.longTerm.bronze && D.longTerm.relegation);
     if (missing) card.open = true;
 
@@ -194,6 +210,17 @@ function renderLongTerm() {
             ? `Możesz zmieniać do ${T.fmtDateTime(D.longTermLockAt)}. Za każde trafienie +${D.season.scoring.longTermEach} pkt.`
             : 'Wytypuj przed startem sezonu.';
     }
+}
+
+/** Regulamin: trzy RÓŻNE drużyny - drużyna wybrana w jednym polu jest niedostępna w pozostałych. */
+function syncLtOptions() {
+    const ids = ['champion', 'bronze', 'relegation'];
+    const vals = ids.map(id => document.getElementById(`lt-${id}`).value);
+    ids.forEach((id, i) => {
+        [...document.getElementById(`lt-${id}`).options].forEach(o => {
+            o.disabled = !!o.value && vals.some((v, j) => j !== i && v === o.value);
+        });
+    });
 }
 
 /* ---------------- kolejki ---------------- */
@@ -275,68 +302,81 @@ function renderMatches() {
 
         let jokerHtml = '';
         if (locked) {
-            jokerHtml = p.usedJoker ? '<p class="mt-3 text-center chip-gold mx-auto w-fit">⭐ Joker na tym meczu</p>' : '';
+            jokerHtml = p.usedJoker ? '<p class="mt-3 text-center"><span class="chip-gold">🃏 Joker na tym meczu</span></p>' : '';
         } else if (jk.used && jk.frozen && jk.matchId !== match._id) {
             jokerHtml = '';
         } else {
             jokerHtml = `
-            <label class="mt-3 flex items-center justify-center gap-2 rounded-xl border border-dashed border-gold/50 py-2 text-sm font-bold text-gold cursor-pointer has-[:checked]:bg-gold/10 has-[:checked]:border-solid">
+            <label class="joker-card">
                 <input type="checkbox" class="joker-checkbox w-5 h-5 accent-[rgb(var(--gold))]" data-match="${match._id}" ${jokerOn ? 'checked' : ''} onchange="onJokerChange(this)">
-                ⭐ Joker x${D.season.scoring.jokerMultiplier}${jk.used && jk.matchId !== match._id ? ' <span class="font-semibold text-muted">(przeniesie z innego meczu)</span>' : ''}
+                🃏 Joker ×${D.season.scoring.jokerMultiplier}${jk.used && jk.matchId !== match._id ? ' <span class="hint font-semibold normal-case not-italic text-muted">(przeniesie z innego meczu)</span>' : ''}
             </label>`;
         }
 
+        const pts = p.pointsEarned !== null && p.pointsEarned !== undefined ? p.pointsEarned : null;
         const result = T.hasResult(match)
-            ? `<div class="mt-3 flex items-center justify-center gap-2 text-sm">
-                 <span class="text-muted">Wynik</span><strong class="tabular-nums">${match.homeScore}:${match.awayScore}</strong>
-                 ${p.pointsEarned !== null && p.pointsEarned !== undefined ? `<span class="chip ${p.pointsEarned > 0 ? 'chip-ok' : 'chip-muted'}">+${p.pointsEarned} pkt</span>` : ''}
+            ? `<div class="mt-4 flex items-center justify-center gap-3">
+                 <span class="text-[11px] font-bold uppercase tracking-wider text-muted">Wynik</span>
+                 <span class="led-box text-xl">${match.homeScore}:${match.awayScore}</span>
+                 ${pts !== null ? `<span class="pts-stamp big ${pts > 0 ? 'text-ok' : 'text-faint'}">+${pts} pkt</span>` : ''}
                </div>` : '';
 
         const input = (cls, val, label) => `<input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off"
             aria-label="${label}" class="${cls} score-input ${filled ? 'filled' : ''}"
             value="${val ?? ''}" placeholder="–" ${locked ? 'disabled' : ''} oninput="sanitize(this)" onfocus="this.select()">`;
+        const team = (name, side) => `<div class="flex flex-col items-center gap-1 min-w-0">${T.logoHtml(name, 'team-logo-lg')}
+            <span class="text-xs font-black text-center leading-tight">${esc(T.shortName(name))}</span>
+            <span class="text-[9px] font-bold uppercase tracking-wider text-faint">${side}</span></div>`;
 
         return `
-        <article class="card card-pad match-card ${match.isMatchOfTheRound ? 'ring-2 ring-gold/60' : ''}" data-id="${match._id}">
-            <div class="flex items-center justify-between gap-2 mb-3">
-                <span class="text-xs font-bold text-muted">${T.fmtDay(match.matchDate)} · ${T.fmtTime(match.matchDate)}</span>
-                <span class="flex items-center gap-1.5">
-                    ${match.isMatchOfTheRound ? '<span class="chip-gold">⭐ Kask</span>' : ''}
-                    <span class="lock-label ${st.cls}">${esc(st.text)}</span>
-                </span>
+        <article class="race-card match-card ${match.isMatchOfTheRound ? 'kask' : ''}" data-id="${match._id}">
+            <div class="gate-stripe"></div>
+            <div class="card-pad">
+                <div class="flex items-center justify-between gap-2 mb-3">
+                    <span class="text-xs font-bold text-muted">${T.fmtDay(match.matchDate)} · ${T.fmtTime(match.matchDate)}</span>
+                    <span class="flex items-center gap-1.5">
+                        ${match.isMatchOfTheRound ? '<span class="kask-badge">⭐ Kask</span>' : ''}
+                        <span class="lock-label ${st.cls}">${esc(st.text)}</span>
+                    </span>
+                </div>
+                <div class="grid grid-cols-[1fr_auto_auto_auto_1fr] items-center gap-2">
+                    ${team(match.homeTeam, 'gospodarz')}
+                    ${input('home-pred', homeVal, `Gospodarze: ${esc(match.homeTeam)}`)}
+                    <span class="text-2xl font-black text-faint">:</span>
+                    ${input('away-pred', awayVal, `Goście: ${esc(match.awayTeam)}`)}
+                    ${team(match.awayTeam, 'gość')}
+                </div>
+                ${!locked ? '<div class="sum-meter" aria-hidden="true"><i style="width:0"></i></div><p class="sum-hint mt-1.5 text-center text-xs text-muted"></p>' : ''}
+                ${match.originalDate ? `<p class="mt-2 text-center text-xs text-muted">🌧️ Przełożony z ${T.fmtDateTime(match.originalDate)}${match.predictionsFrozen ? ' — typy zamrożone, bo były już jawne' : ''}</p>` : ''}
+                ${match.note ? `<p class="mt-1 text-center text-xs text-muted italic">${esc(match.note)}</p>` : ''}
+                ${result}
+                ${jokerHtml}
             </div>
-            <div class="grid grid-cols-[1fr_auto_auto_auto_1fr] items-center gap-2">
-                <div class="flex flex-col items-center gap-1 min-w-0">${T.logoHtml(match.homeTeam, 'team-logo-lg')}<span class="text-xs font-bold text-center leading-tight">${esc(T.shortName(match.homeTeam))}</span></div>
-                ${input('home-pred', homeVal, `Gospodarze: ${esc(match.homeTeam)}`)}
-                <span class="text-2xl font-black text-faint">:</span>
-                ${input('away-pred', awayVal, `Goście: ${esc(match.awayTeam)}`)}
-                <div class="flex flex-col items-center gap-1 min-w-0">${T.logoHtml(match.awayTeam, 'team-logo-lg')}<span class="text-xs font-bold text-center leading-tight">${esc(T.shortName(match.awayTeam))}</span></div>
-            </div>
-            ${!locked ? '<p class="sum-hint mt-2 text-center text-xs text-muted"></p>' : ''}
-            ${match.originalDate ? `<p class="mt-2 text-center text-xs text-muted">Przełożony z ${T.fmtDateTime(match.originalDate)}${match.predictionsFrozen ? ' — typy zamrożone, bo były już jawne' : ''}</p>` : ''}
-            ${match.note ? `<p class="mt-1 text-center text-xs text-muted italic">${esc(match.note)}</p>` : ''}
-            ${result}
-            ${jokerHtml}
         </article>`;
     }).join('');
     box.querySelectorAll('.match-card').forEach(updateSumHint);
 }
 
-/** Podpowiedź: pełny mecz to 90 pkt (15 biegów x 6). */
+/** Podpowiedź: pełny mecz to 90 pkt (15 biegów x 6) + pasek sumy. */
 function updateSumHint(card) {
     const hint = card.querySelector('.sum-hint');
     if (!hint) return;
     const h = card.querySelector('.home-pred').value, a = card.querySelector('.away-pred').value;
+    const meter = card.querySelector('.sum-meter');
+    const sum = (Number(h) || 0) + (Number(a) || 0);
+    if (meter) {
+        meter.firstElementChild.style.width = `${Math.min(100, (sum / 90) * 100)}%`;
+        meter.className = `sum-meter ${h !== '' && a !== '' ? (sum === 90 ? 'ok' : sum > 90 ? 'over' : '') : ''}`;
+    }
     if (h === '' && a === '') {
         const had = hasPred(myPred(card.dataset.id));
         hint.textContent = had && pending.has(card.dataset.id) ? 'Puste pola = typ zostanie usunięty' : 'Pełny mecz: suma 90 pkt (np. 46:44, 50:40)';
-        hint.className = `sum-hint mt-2 text-center text-xs ${had && pending.has(card.dataset.id) ? 'text-warn font-bold' : 'text-muted'}`;
+        hint.className = `sum-hint mt-1.5 text-center text-xs ${had && pending.has(card.dataset.id) ? 'text-warn font-bold' : 'text-muted'}`;
         return;
     }
-    if (h === '' || a === '') { hint.textContent = 'Wpisz oba wyniki — niepełny typ nie zostanie zapisany'; hint.className = 'sum-hint mt-2 text-center text-xs text-warn font-bold'; return; }
-    const sum = Number(h) + Number(a);
+    if (h === '' || a === '') { hint.textContent = 'Wpisz oba wyniki — niepełny typ nie zostanie zapisany'; hint.className = 'sum-hint mt-1.5 text-center text-xs text-warn font-bold'; return; }
     hint.textContent = sum === 90 ? 'Suma 90 ✓' : `Suma ${sum} (pełny mecz to 90)`;
-    hint.className = `sum-hint mt-2 text-center text-xs ${sum === 90 ? 'text-ok' : sum > 90 ? 'text-bad font-bold' : 'text-muted'}`;
+    hint.className = `sum-hint mt-1.5 text-center text-xs ${sum === 90 ? 'text-ok font-bold' : sum > 90 ? 'text-bad font-bold' : 'text-muted'}`;
 }
 
 /** Zapamiętuje to, co gracz wpisał w karcie (jeszcze niezapisane). */
@@ -524,10 +564,11 @@ function renderMyForm() {
     const max = Math.max(1, ...(r.form || []).map(f => f.points));
     const bars = (r.form || []).map(f => `
         <div class="flex flex-col items-center gap-1 flex-1">
-            <span class="text-xs font-bold tabular-nums">${f.points}</span>
-            <div class="w-full max-w-[28px] rounded-t bg-brand" style="height:${Math.max(4, (f.points / max) * 56)}px"></div>
-            <span class="text-[11px] text-muted">R${f.round}</span>
+            <span class="text-xs font-black tabular-nums">${f.points}</span>
+            <div class="w-full max-w-[28px] rounded-t-md bg-gradient-to-t from-brand to-gold" style="height:${Math.max(4, (f.points / max) * 56)}px"></div>
+            <span class="text-[11px] text-muted font-bold">R${f.round}</span>
         </div>`).join('');
+    const wins = (r.roundWins || []).length;
     box.innerHTML = `
         ${bars ? `<div class="flex items-end gap-2 h-24 border-b border-line pb-0 mb-3" role="img" aria-label="Punkty w ostatnich kolejkach">${bars}</div>` : '<p class="text-muted mb-3">Brak rozliczonych kolejek.</p>'}
         <dl class="grid grid-cols-2 gap-2">
@@ -535,6 +576,7 @@ function renderMyForm() {
             <div class="rounded-xl bg-raised p-2.5"><dt class="eyebrow">Skuteczność</dt><dd class="font-bold">${r.hitRate}%</dd></div>
             <div class="rounded-xl bg-raised p-2.5"><dt class="eyebrow">Lider</dt><dd class="font-bold truncate">${r.leader ? `${esc(r.leader.nickname)} (${r.leader.points})` : '—'}</dd></div>
             <div class="rounded-xl bg-raised p-2.5"><dt class="eyebrow">Joker</dt><dd class="font-bold truncate">${jokerStateText()}</dd></div>
+            <div class="rounded-xl bg-raised p-2.5 col-span-2"><dt class="eyebrow">Wygrane kolejki</dt><dd class="font-bold">${wins ? `👑 ×${wins} (${r.roundWins.map(x => `R${x}`).join(', ')})` : '— jeszcze żadnej'}</dd></div>
         </dl>`;
 }
 
@@ -544,6 +586,175 @@ function jokerStateText() {
     if (!jk.match) return 'ustawiony';
     const name = `${T.shortName(jk.match.homeTeam)}–${T.shortName(jk.match.awayTeam)}`;
     return jk.frozen ? `zużyty (${esc(name)})` : `na ${esc(name)}`;
+}
+
+/* ---------------- Mistrz Typera: niespodzianka, dyplom, wygrana kolejka ---------------- */
+
+const MEDAL_TITLE = { 1: 'MISTRZ TYPERA', 2: 'WICEMISTRZ TYPERA', 3: 'BRĄZOWY MEDAL TYPERA' };
+
+function renderChampion() {
+    const box = document.getElementById('champ-box');
+    const c = D.champion;
+    if (c) {
+        const surprise = !!(c.prize || c.message);
+        box.classList.remove('hidden');
+        box.innerHTML = `
+        <div class="champ-card text-center">
+            <div class="trophy" aria-hidden="true">🏆</div>
+            <div class="text-[11px] font-bold uppercase tracking-wider text-gold mt-2">${esc(c.label)}</div>
+            <h2 class="display text-3xl mt-1">Mistrz Typera!</h2>
+            <p class="text-sm text-white/80 mt-1">${c.coChampions.length ? `Tytuł ex aequo z: ${c.coChampions.map(esc).join(', ')}. Gratulacje!` : 'Wygrałeś cały sezon. Gratulacje!'}</p>
+            <div class="flex flex-wrap justify-center gap-2 mt-4">
+                ${surprise ? `<button id="champ-open" class="btn-gold">${c.revealed ? '🎁 Twoja niespodzianka' : '🎁 Odbierz niespodziankę'}</button>` : ''}
+                <button id="champ-diploma" class="btn bg-white/10 text-white">📜 Dyplom</button>
+            </div>
+        </div>`;
+        if (surprise) document.getElementById('champ-open').onclick = openSurprise;
+        document.getElementById('champ-diploma').onclick = downloadDiploma;
+        // pierwsze wejście mistrza po zamknięciu sezonu: konfetti i zdrapka same się otwierają
+        if (surprise && !c.revealed && T.once(`champ-auto-${D.season.year}-${D.player.nickname}`)) { T.confetti(); setTimeout(openSurprise, 600); }
+        return;
+    }
+    if (D.medal === 2 || D.medal === 3) {
+        box.classList.remove('hidden');
+        box.innerHTML = `
+        <div class="card card-pad flex items-center gap-3">
+            <span class="text-4xl" aria-hidden="true">${D.medal === 2 ? '🥈' : '🥉'}</span>
+            <div class="flex-1 min-w-0"><div class="font-black italic uppercase">${D.medal === 2 ? 'Wicemistrz' : 'Brązowy medal'} sezonu</div>
+                <div class="text-sm text-muted">${D.ranking.position}. miejsce · ${D.ranking.points} pkt — miejsce na podium!</div></div>
+            <button id="champ-diploma" class="btn-ghost btn-sm">📜 Dyplom</button>
+        </div>`;
+        document.getElementById('champ-diploma').onclick = downloadDiploma;
+        if (T.once(`medal-${D.season.year}-${D.player.nickname}`)) T.confetti(1600);
+        return;
+    }
+    box.classList.add('hidden');
+    box.innerHTML = '';
+}
+
+async function downloadDiploma() {
+    const pos = D.champion ? 1 : D.medal;
+    try {
+        const blob = await T.diploma({
+            nick: D.player.nickname, title: MEDAL_TITLE[pos], subtitle: D.season.label, season: D.season.year,
+            points: D.ranking.points, perfects: D.ranking.snipers, position: pos,
+            date: new Date(T.now()).toLocaleDateString('pl-PL')
+        });
+        const out = await T.shareOrDownload(blob, `dyplom-${D.player.nickname}-${D.season.year}.png`, `${MEDAL_TITLE[pos]} ${D.season.year} — ${D.player.nickname}`);
+        if (out === 'downloaded') T.toast('Dyplom pobrany 📜');
+    } catch (e) { T.toast('Nie udało się przygotować dyplomu.', 'err'); }
+}
+
+/** Zdrapka z niespodzianką (palec / mysz) + przycisk "Odkryj od razu" dla klawiatury i czytników ekranu. */
+function openSurprise() {
+    const c = D.champion;
+    if (!c || document.getElementById('surprise')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'sheet-backdrop';
+    wrap.id = 'surprise';
+    wrap.innerHTML = `
+        <div class="sheet sm:max-w-md" role="dialog" aria-modal="true" aria-labelledby="sv-title">
+            <div class="sheet-body text-center">
+                <div class="text-5xl pop" aria-hidden="true">🏆</div>
+                <h2 id="sv-title" class="display text-2xl mt-2">Niespodzianka dla Mistrza</h2>
+                <p id="sv-lead" class="text-sm text-muted mt-1">${c.revealed ? 'Oto Twoja nagroda:' : 'Zdrap kartę palcem (albo myszką) i zobacz, co wygrałeś!'}</p>
+                <div class="scratch mt-4">
+                    <div class="scratch-prize" id="sv-prize" ${c.revealed ? '' : 'aria-hidden="true"'}>
+                        <div class="text-3xl" aria-hidden="true">🎁</div>
+                        <div class="display text-lg leading-snug mt-1">${esc(c.prize || 'Tytuł Mistrza Typera!')}</div>
+                    </div>
+                    ${c.revealed ? '' : '<canvas id="sv-canvas"></canvas>'}
+                </div>
+                ${c.message ? `<p id="sv-msg" class="text-sm text-muted mt-3 whitespace-pre-line ${c.revealed ? '' : 'invisible'}">💬 ${esc(c.message)}</p>` : ''}
+                ${c.revealed ? '' : '<button id="reveal-now" class="btn-ghost btn-sm mt-3">Odkryj od razu</button>'}
+            </div>
+            <div class="sheet-foot">
+                <button class="btn-ghost flex-1" id="sv-close">Zamknij</button>
+                <button class="btn-gold flex-1" id="sv-diploma">📜 Dyplom</button>
+            </div>
+        </div>`;
+    document.body.appendChild(wrap);
+    document.body.style.overflow = 'hidden';
+    const close = () => { wrap.remove(); document.body.style.overflow = ''; };
+    wrap.addEventListener('mousedown', e => { if (e.target === wrap) close(); });
+    wrap.querySelector('#sv-close').onclick = close;
+    wrap.querySelector('#sv-diploma').onclick = downloadDiploma;
+    wrap.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+    if (!c.revealed) {
+        setupScratch(wrap.querySelector('#sv-canvas'), reveal);
+        wrap.querySelector('#reveal-now').onclick = reveal;
+    }
+    (wrap.querySelector('#reveal-now') || wrap.querySelector('#sv-close')).focus();
+
+    let done = false;
+    async function reveal() {
+        if (done) return;
+        done = true;
+        const cv = wrap.querySelector('#sv-canvas');
+        if (cv) { cv.style.transition = 'opacity .5s'; cv.style.opacity = '0'; setTimeout(() => cv.remove(), 520); }
+        wrap.querySelector('#sv-prize').removeAttribute('aria-hidden');
+        const msg = wrap.querySelector('#sv-msg');
+        if (msg) msg.classList.remove('invisible');
+        const btn = wrap.querySelector('#reveal-now');
+        if (btn) btn.remove();
+        wrap.querySelector('#sv-lead').textContent = 'Gratulacje, Mistrzu! 🎉';
+        T.confetti();
+        try { await T.postJson('/api/public/champion/reveal', { token, season: D.season.year }); } catch (e) { /* zapis odkrycia nie jest krytyczny */ }
+        c.revealed = true;
+        renderChampion();
+    }
+}
+
+function setupScratch(canvas, onDone) {
+    const box = canvas.parentElement;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = box.clientWidth, h = box.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const g = canvas.getContext('2d');
+    g.scale(dpr, dpr);
+    const grad = g.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, '#a16207'); grad.addColorStop(0.5, '#facc15'); grad.addColorStop(1, '#a16207');
+    g.fillStyle = grad; g.fillRect(0, 0, w, h);
+    g.fillStyle = 'rgba(66,32,6,.85)'; g.textAlign = 'center';
+    g.font = '900 italic 22px system-ui, sans-serif'; g.fillText('ZDRAP MNIE', w / 2, h / 2 - 4);
+    g.font = '600 13px system-ui, sans-serif'; g.fillText('🏁 nagroda Mistrza Typera 🏁', w / 2, h / 2 + 20);
+    g.globalCompositeOperation = 'destination-out';
+    let down = false, moves = 0;
+    const scratch = e => {
+        const r = canvas.getBoundingClientRect();
+        g.beginPath(); g.arc(e.clientX - r.left, e.clientY - r.top, 22, 0, Math.PI * 2); g.fill();
+        if (++moves % 12 === 0 && cleared() > 0.5) onDone();
+    };
+    const cleared = () => {
+        const data = g.getImageData(0, 0, canvas.width, canvas.height).data;
+        let clear = 0, total = 0;
+        for (let i = 3; i < data.length; i += 4 * 40) { total++; if (data[i] === 0) clear++; }
+        return clear / total;
+    };
+    canvas.addEventListener('pointerdown', e => { down = true; canvas.setPointerCapture(e.pointerId); scratch(e); });
+    canvas.addEventListener('pointermove', e => { if (down) scratch(e); });
+    canvas.addEventListener('pointerup', () => { down = false; });
+}
+
+/** Baner "Wygrałeś kolejkę" - raz na kolejkę (zamknięcie zapamiętane na urządzeniu). */
+function renderRoundWin() {
+    const box = document.getElementById('round-win');
+    const w = D.lastRoundWin;
+    const key = w ? `roundwin-${D.season.year}-${w.round}` : '';
+    let dismissed = false;
+    try { dismissed = !!(key && localStorage.getItem(`${key}-x`)); } catch (e) { /* tryb prywatny */ }
+    if (!w || dismissed || D.season.isFinished) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+    box.classList.remove('hidden');
+    box.innerHTML = `<div class="rounded-2xl border border-gold/50 bg-gold/10 px-4 py-3 flex items-center gap-3 pop">
+        <span class="text-3xl" aria-hidden="true">👑</span>
+        <div class="flex-1 min-w-0"><div class="font-black">${w.shared ? 'Współzwycięzca' : 'Zwycięzca'} kolejki: ${esc(T.roundName(w.round, D.season.stageNames))}!</div>
+            <div class="text-sm text-muted">${w.points} pkt — najlepszy wynik kolejki${w.shared ? ' (ex aequo)' : ''}.</div></div>
+        <button class="btn-ghost btn-sm !px-2.5" aria-label="Zamknij" id="round-win-x">✕</button></div>`;
+    document.getElementById('round-win-x').onclick = () => {
+        try { localStorage.setItem(`${key}-x`, '1'); } catch (e) { /* ignore */ }
+        box.classList.add('hidden');
+    };
+    if (T.once(key)) T.confetti(1800);
 }
 
 /* ---------------- powiadomienia i instalacja ---------------- */

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Panel admina — Żużlowy Typer</title>
     <meta name="robots" content="noindex">
-    <meta name="theme-color" content="#0b1220">
+    <meta name="theme-color" content="#0a0f1c">
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="stylesheet" href="/css/app.css?v=__V__">
@@ -14,27 +14,35 @@
     <div id="busybar" class="fixed top-0 inset-x-0 h-1 z-[120] bg-brand/80 animate-pulse" aria-hidden="true"></div>
 
     <!-- ===== LOGOWANIE ===== -->
-    <div id="login-modal" class="fixed inset-0 bg-night flex items-center justify-center z-[100] p-4">
-        <form class="card card-pad w-full max-w-sm text-center" onsubmit="event.preventDefault(); loginAdmin()">
-            <img src="/icons/icon.svg" alt="" class="w-12 h-12 rounded-xl mx-auto mb-3">
-            <h1 class="text-xl font-black">Panel administratora</h1>
-            <p class="text-xs text-muted mb-4">Hasło sprawdza serwer. Sesja wygasa po 8 h bezczynności.</p>
-            <label for="admin-pass-input" class="sr-only">Hasło</label>
-            <input type="password" id="admin-pass-input" placeholder="Hasło" autocomplete="current-password" class="input text-center mb-3">
-            <button class="btn-primary w-full">Zaloguj</button>
-            <p id="login-error" class="text-sm text-bad font-bold mt-3" role="alert"></p>
-            <a href="/" class="inline-block mt-4 text-xs font-bold text-muted">← Strona typera</a>
+    <div id="login-modal" class="hero fixed inset-0 flex items-center justify-center z-[100] p-4">
+        <svg class="hero-track" viewBox="0 0 360 220" fill="none" aria-hidden="true" style="right:auto;left:50%;transform:translateX(-50%);bottom:-40px;width:560px;height:340px">
+            <ellipse cx="180" cy="110" rx="170" ry="96" stroke="white" stroke-width="22"/>
+            <ellipse cx="180" cy="110" rx="128" ry="58" stroke="white" stroke-width="2" stroke-dasharray="6 8"/>
+        </svg>
+        <form class="card w-full max-w-sm text-center text-ink overflow-hidden" onsubmit="event.preventDefault(); loginAdmin()">
+            <div class="gate-stripe"></div>
+            <div class="card-pad">
+                <img src="/icons/icon.svg" alt="" class="w-14 h-14 rounded-2xl mx-auto mb-3 shadow-lift">
+                <h1 class="display text-2xl">Wieża sędziowska</h1>
+                <p class="text-xs text-muted mb-4 mt-1">Panel administratora · hasło sprawdza serwer, sesja wygasa po 8 h bezczynności.</p>
+                <label for="admin-pass-input" class="sr-only">Hasło</label>
+                <input type="password" id="admin-pass-input" placeholder="Hasło" autocomplete="current-password" class="input text-center mb-3">
+                <button class="btn-primary w-full font-black italic uppercase">Wjazd na tor</button>
+                <p id="login-error" class="text-sm text-bad font-bold mt-3" role="alert"></p>
+                <a href="/" class="inline-block mt-4 text-xs font-bold text-muted">← Strona typera</a>
+            </div>
         </form>
     </div>
 
     <div id="dashboard" class="hidden lg:flex lg:min-h-screen">
 
         <!-- ===== MENU BOCZNE (komputer) ===== -->
-        <aside class="hidden lg:flex lg:flex-col w-64 shrink-0 bg-night text-white px-3 py-4 sticky top-0 h-screen">
+        <aside class="hero hidden lg:flex lg:flex-col w-64 shrink-0 px-3 py-4 sticky top-0 h-screen">
             <div class="flex items-center gap-2 px-2 mb-6">
-                <img src="/icons/icon.svg" alt="" class="w-9 h-9 rounded-xl">
-                <div><div class="font-black leading-tight">Panel admina</div><div class="text-[11px] text-white/50">Żużlowy Typer</div></div>
+                <img src="/icons/icon.svg" alt="" class="w-10 h-10 rounded-xl shadow-lift">
+                <div><div class="logo-word text-lg">Żużlowy <span>Typer</span></div><div class="text-[11px] text-white/55 font-bold uppercase tracking-wider">Wieża sędziowska</div></div>
             </div>
+            <div class="gate-stripe rounded-full mx-2 mb-4"></div>
             <nav class="flex flex-col gap-1" aria-label="Sekcje panelu" id="side-nav"></nav>
             <div class="mt-auto flex flex-col gap-1">
                 <a href="/" class="side-link">
@@ -46,12 +54,12 @@
 
         <div class="flex-1 min-w-0">
             <!-- ===== NAGŁÓWEK ===== -->
-            <header class="bg-night text-white lg:bg-transparent lg:text-ink sticky top-0 z-30 lg:static" style="padding-top: env(safe-area-inset-top)">
+            <header class="hero lg:bg-none lg:text-ink sticky top-0 z-30 lg:static" style="padding-top: env(safe-area-inset-top)">
                 <div class="mx-auto max-w-4xl px-4 py-3 flex items-center gap-3">
-                    <img src="/icons/icon.svg" alt="" class="w-8 h-8 rounded-lg lg:hidden">
+                    <img src="/icons/icon.svg" alt="" class="w-9 h-9 rounded-lg lg:hidden">
                     <div class="min-w-0 flex-1">
-                        <h1 id="view-title" class="text-lg lg:text-2xl font-black leading-tight truncate">Pulpit</h1>
-                        <div class="flex items-center gap-2 text-xs">
+                        <h1 id="view-title" class="display text-xl lg:text-3xl truncate">Pulpit</h1>
+                        <div class="flex items-center gap-2 text-xs mt-1">
                             <label for="season-picker" class="text-white/60 lg:text-muted">Sezon</label>
                             <select id="season-picker" class="min-w-0 max-w-[12rem] rounded-md px-1.5 py-0.5 font-bold border-0 bg-white/10 text-white lg:bg-raised lg:text-ink lg:border lg:border-line"></select>
                             <span id="season-state" class="chip bg-white/10 text-white/80 lg:bg-raised lg:text-muted hidden sm:inline-flex"></span>
@@ -61,6 +69,7 @@
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7"/></svg>
                     </button>
                 </div>
+                <div class="gate-stripe lg:hidden"></div>
             </header>
 
             <main class="mx-auto max-w-4xl px-4 py-4">

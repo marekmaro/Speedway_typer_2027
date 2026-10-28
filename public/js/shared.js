@@ -217,9 +217,133 @@ window.T = (function () {
         await sub.unsubscribe();
     }
 
+    /* ---------------- motyw żużlowy: kaski, światła startowe, konfetti, dyplom ---------------- */
+
+    const HELMETS = ['h-red', 'h-blue', 'h-white', 'h-yellow'];
+    /** Kolor kasku typera - stały dla pseudonimu (jak numer startowy). */
+    function helmetColor(nick) {
+        let h = 0;
+        for (const ch of String(nick || '')) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+        return HELMETS[h % HELMETS.length];
+    }
+    function nickInitials(nick) {
+        const words = String(nick || '?').trim().split(/[\s_.-]+/).filter(Boolean);
+        const out = words.length > 1 ? words[0][0] + words[1][0] : [...words[0] || '?'].slice(0, 2).join('');
+        return out.toUpperCase();
+    }
+    /** Kask-awatar. medal: 1/2/3 = złoty/srebrny/brązowy kask (podium). */
+    function helmet(nick, { size = '', medal = null, title = true } = {}) {
+        const color = medal === 1 ? 'h-gold' : medal === 2 ? 'h-silver' : medal === 3 ? 'h-bronze' : helmetColor(nick);
+        return `<span class="helmet ${color} ${size ? `helmet-${size}` : ''}" ${title ? `title="${escapeHtml(nick)}"` : ''} aria-hidden="true"><span>${escapeHtml(nickInitials(nick))}</span></span>`;
+    }
+
+    /** Światła startowe: im bliżej blokady, tym więcej się pali (4 = ostatnie minuty). */
+    function startLights(msLeft) {
+        const on = msLeft === null || msLeft === undefined ? 0
+            : msLeft <= 5 * 60e3 ? 4 : msLeft <= 30 * 60e3 ? 3 : msLeft <= 3 * 3600e3 ? 2 : msLeft <= 24 * 3600e3 ? 1 : 0;
+        return { on, html: `<span class="start-lights ${on === 4 ? 'hot' : ''}" aria-hidden="true">${[0, 1, 2, 3].map(i => `<i class="${i < on ? 'on' : ''}"></i>`).join('')}</span>` };
+    }
+
+    const reducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    /** Konfetti w kolorach kasków i złota. Bez bibliotek, sam się sprząta. */
+    function confetti(ms = 3500) {
+        if (reducedMotion() || !document.body) return;
+        let c = document.getElementById('confetti');
+        if (!c) { c = document.createElement('canvas'); c.id = 'confetti'; document.body.appendChild(c); }
+        const ctx = c.getContext('2d');
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        const resize = () => { c.width = innerWidth * dpr; c.height = innerHeight * dpr; };
+        resize();
+        const colors = ['#dc2626', '#2563eb', '#f1f5f9', '#facc15', '#ca8a04'];
+        const parts = Array.from({ length: 160 }, () => ({
+            x: Math.random() * c.width, y: -Math.random() * c.height * 0.6, w: (6 + Math.random() * 6) * dpr, h: (8 + Math.random() * 10) * dpr,
+            vx: (Math.random() - 0.5) * 3 * dpr, vy: (2 + Math.random() * 4) * dpr, r: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3,
+            color: colors[Math.floor(Math.random() * colors.length)]
+        }));
+        const end = Date.now() + ms;
+        (function frame() {
+            ctx.clearRect(0, 0, c.width, c.height);
+            parts.forEach(p => {
+                p.x += p.vx; p.y += p.vy; p.r += p.vr; p.vy += 0.03 * dpr;
+                ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.color; ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); ctx.restore();
+            });
+            if (Date.now() < end) requestAnimationFrame(frame); else c.remove();
+        })();
+    }
+
+    /**
+     * Dyplom Mistrza Typera (PNG z canvas). opts: { nick, title, subtitle, season, points, perfects, position, date }
+     * Zwraca Promise<Blob>.
+     */
+    function diploma(opts) {
+        const W = 1600, H = 1131;
+        const c = document.createElement('canvas');
+        c.width = W; c.height = H;
+        const g = c.getContext('2d');
+        const gold = g.createLinearGradient(0, 0, W, H);
+        gold.addColorStop(0, '#fde68a'); gold.addColorStop(0.5, '#ca8a04'); gold.addColorStop(1, '#fde68a');
+        // tło: nocny stadion
+        const bg = g.createRadialGradient(W / 2, -200, 100, W / 2, H / 2, H);
+        bg.addColorStop(0, '#3b2a05'); bg.addColorStop(0.55, '#0b1220'); bg.addColorStop(1, '#05080f');
+        g.fillStyle = bg; g.fillRect(0, 0, W, H);
+        // tor (owal)
+        g.strokeStyle = 'rgba(255,255,255,0.07)'; g.lineWidth = 60;
+        g.beginPath(); g.ellipse(W / 2, H / 2 + 40, W * 0.42, H * 0.33, 0, 0, Math.PI * 2); g.stroke();
+        // ramka
+        g.strokeStyle = gold; g.lineWidth = 10; g.strokeRect(40, 40, W - 80, H - 80);
+        g.lineWidth = 2; g.strokeRect(62, 62, W - 124, H - 124);
+        // pasek kasków
+        ['#dc2626', '#2563eb', '#f1f5f9', '#facc15'].forEach((col, i) => { g.fillStyle = col; g.fillRect(W / 2 - 240 + i * 120, 120, 120, 10); });
+        g.textAlign = 'center';
+        g.fillStyle = '#fde68a'; g.font = '900 italic 40px system-ui, sans-serif';
+        g.fillText('ŻUŻLOWY TYPER', W / 2, 200);
+        g.fillStyle = '#ffffff'; g.font = '900 120px Georgia, serif';
+        g.fillText('DYPLOM', W / 2, 340);
+        g.fillStyle = gold; g.font = '900 italic 64px system-ui, sans-serif';
+        g.fillText(opts.title || 'MISTRZ TYPERA', W / 2, 440);
+        g.fillStyle = 'rgba(255,255,255,0.75)'; g.font = '400 34px system-ui, sans-serif';
+        g.fillText(opts.subtitle || `sezon ${opts.season}`, W / 2, 500);
+        g.fillStyle = '#ffffff'; g.font = '900 150px system-ui, sans-serif';
+        let size = 150;
+        while (g.measureText(opts.nick).width > W - 300 && size > 60) { size -= 10; g.font = `900 ${size}px system-ui, sans-serif`; }
+        g.fillText(opts.nick, W / 2, 690);
+        g.fillStyle = 'rgba(255,255,255,0.85)'; g.font = '600 38px system-ui, sans-serif';
+        const facts = [`${opts.position}. miejsce`, `${opts.points} pkt`, `${opts.perfects} dokładnych wyników`].join('   ·   ');
+        g.fillText(facts, W / 2, 790);
+        g.font = '120px system-ui, sans-serif';
+        g.fillText(opts.position === 1 ? '🏆' : opts.position === 2 ? '🥈' : '🥉', W / 2, 950);
+        g.fillStyle = 'rgba(255,255,255,0.55)'; g.font = '400 28px system-ui, sans-serif';
+        g.textAlign = 'left'; g.fillText(opts.date || new Date().toLocaleDateString('pl-PL'), 140, H - 120);
+        g.textAlign = 'right'; g.fillText('organizator typera', W - 140, H - 120);
+        g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 2;
+        g.beginPath(); g.moveTo(W - 520, H - 160); g.lineTo(W - 140, H - 160); g.stroke();
+        return new Promise(resolve => c.toBlob(resolve, 'image/png'));
+    }
+
+    /** Pobranie / udostępnienie pliku (Web Share na telefonie, zwykłe pobranie na komputerze). */
+    async function shareOrDownload(blob, filename, text) {
+        const file = new File([blob], filename, { type: blob.type });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            try { await navigator.share({ files: [file], title: filename, text }); return 'shared'; } catch (e) { if (e.name === 'AbortError') return 'aborted'; }
+        }
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        return 'downloaded';
+    }
+
+    /** "Raz na urządzenie" - np. konfetti tylko przy pierwszym wejściu po zamknięciu sezonu. */
+    function once(key) {
+        try { if (localStorage.getItem(key)) return false; localStorage.setItem(key, '1'); return true; } catch (e) { return false; }
+    }
+
     return {
         LOGOS, shortName, initials, logoHtml, fmtDate, fmtDateTime, fmtDay, fmtTime, countdown, lockTime, isLocked, syncClock, now,
         hasResult, lockLabel, matchStatus, roundName, escapeHtml, getJson, postJson, toast, pad,
-        registerSW, rememberToken, storedToken, isStandalone, isIOS, pushSupported, currentPush, enablePush, disablePush
+        registerSW, rememberToken, storedToken, isStandalone, isIOS, pushSupported, currentPush, enablePush, disablePush,
+        helmet, helmetColor, nickInitials, startLights, confetti, diploma, shareOrDownload, once, reducedMotion
     };
 })();

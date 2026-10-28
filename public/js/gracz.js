@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.title = `${P.nickname} — Żużlowy Typer`;
     renderHeader();
     renderTiles();
+    renderAchievements();
     renderCharts();
     renderHistory();
     setupRival();
@@ -31,15 +32,49 @@ function showError(msg) {
 function renderHeader() {
     const s = P.summary;
     document.getElementById('g-nick').textContent = P.nickname;
+    document.getElementById('g-helmet').innerHTML = T.helmet(P.nickname, { size: 'xl', medal: P.medal || null });
     document.getElementById('g-season').textContent = P.season.label;
     document.getElementById('g-points').textContent = s.points;
     document.getElementById('g-pos').textContent = `pkt · ${s.position}. miejsce z ${s.totalPlayers}`;
+    const medal = { 1: '🏆 Mistrz Typera', 2: '🥈 Wicemistrz', 3: '🥉 Brązowy medal' }[P.medal];
+    document.getElementById('g-medal').innerHTML = medal ? `<span class="chip-gold">${medal} ${P.season.year}</span>` : '';
+}
+
+/**
+ * Osiągnięcia liczone z jawnych typów i przebiegu sezonu. Zablokowane są wyszarzone -
+ * żeby było widać, o co jeszcze można powalczyć.
+ */
+function renderAchievements() {
+    const s = P.summary;
+    const hist = P.history.filter(h => h.outcome).slice().sort((a, b) => new Date(a.matchDate) - new Date(b.matchDate));
+    let streak = 0, best = 0;
+    hist.forEach(h => { streak = h.outcome === 'miss' ? 0 : streak + 1; best = Math.max(best, streak); });
+    const kask = hist.filter(h => h.isMatchOfTheRound && (h.outcome === 'exact' || h.outcome === 'diff')).length;
+    const pos = P.progress.map(p => p.position);
+    const jump = pos.reduce((m, p, i) => (i ? Math.max(m, pos[i - 1] - p) : m), 0);
+    const wins = (P.roundWins || []).length;
+    const list = [
+        { icon: '🎯', name: 'Snajper', desc: 'trzy dokładne wyniki w sezonie', got: s.perfects >= 3, note: `${s.perfects}/3` },
+        { icon: '👑', name: 'Zwycięzca kolejki', desc: 'najwięcej punktów w kolejce', got: wins > 0, note: wins ? `×${wins}` : '' },
+        { icon: '🔥', name: 'Seria', desc: '5 typów z rzędu z dobrym zwycięzcą', got: best >= 5, note: `rekord ${best}` },
+        { icon: '🃏', name: 'As w rękawie', desc: 'Joker wart co najmniej 10 pkt', got: s.jokerPoints >= 10, note: s.jokerUsed ? `+${s.jokerPoints}` : '' },
+        { icon: '⭐', name: 'Złoty Kask', desc: 'premia za trafienie meczu kolejki', got: kask > 0, note: kask ? `×${kask}` : '' },
+        { icon: '🚀', name: 'Rakieta', desc: 'awans o 3 miejsca w jednej kolejce', got: jump >= 3, note: jump ? `+${jump}` : '' },
+        { icon: '🥇', name: 'Lider', desc: 'prowadzenie w rankingu po kolejce', got: pos.includes(1) },
+        { icon: '🏆', name: 'Mistrz Typera', desc: 'wygrana całego sezonu', got: P.medal === 1 }
+    ];
+    document.getElementById('g-achievements').innerHTML = list.map(a => `
+        <div class="ach ${a.got ? '' : 'locked'}">
+            <span class="ach-icon" aria-hidden="true">${a.icon}</span>
+            <span class="min-w-0 flex-1"><span class="block font-black">${a.name}</span><span class="text-xs text-muted">${a.desc}</span></span>
+            ${a.note ? `<span class="chip-muted">${a.note}</span>` : ''}${a.got ? '<span class="sr-only">zdobyte</span>' : '<span class="sr-only">jeszcze nie</span>'}
+        </div>`).join('');
 }
 
 function renderTiles() {
     const s = P.summary, sc = P.season.scoring;
-    const tile = (label, value, sub = '') => `<div class="card p-3"><div class="eyebrow">${label}</div>
-        <div class="text-2xl font-black tabular-nums">${value}</div>${sub ? `<div class="text-xs text-muted">${sub}</div>` : ''}</div>`;
+    const tile = (label, value, sub = '') => `<div class="kpi"><div class="eyebrow">${label}</div>
+        <div class="text-2xl font-black tabular-nums mt-0.5">${value}</div>${sub ? `<div class="text-xs text-muted">${sub}</div>` : ''}</div>`;
     document.getElementById('g-tiles').innerHTML = [
         tile('Dokładne', s.perfects, `po ${sc.exact} pkt`),
         tile('Zwycięzca + różnica', s.diffs, `po ${sc.diff} pkt`),
@@ -204,12 +239,12 @@ function positionChart(box, data) {
 function renderHistory() {
     const list = document.getElementById('g-history');
     if (!P.history.length) { list.innerHTML = '<li class="p-4 text-sm text-muted">Brak jawnych typów.</li>'; return; }
-    const label = { exact: ['🎯', 'chip-ok'], diff: ['±', 'chip-ok'], winner: ['✓', 'chip-muted'], miss: ['✕', 'chip-bad'] };
+    const label = { exact: ['🎯', 'text-ok'], diff: ['±', 'text-ok'], winner: ['✓', 'text-muted'], miss: ['✕', 'text-bad'] };
     list.innerHTML = P.history.map(h => {
         const [icon, cls] = label[h.outcome] || ['…', 'chip-muted'];
         const pts = h.voided ? '<span class="chip-warn">anulowany</span>'
             : h.pointsEarned === null ? '<span class="chip-muted">czeka</span>'
-                : `<span class="chip ${cls} tabular-nums">${icon} +${h.pointsEarned}</span>`;
+                : `<span class="pts-stamp ${cls}">${icon} +${h.pointsEarned}</span>`;
         return `<li class="flex items-center gap-3 px-4 py-2.5">
             <span class="text-xs text-muted w-9 shrink-0">R${h.round}</span>
             <span class="flex-1 min-w-0">

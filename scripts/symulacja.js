@@ -48,6 +48,11 @@ const reportPath = path.resolve(__dirname, '..', opt('report', 'SYMULACJA.md'));
     if (serve) {
         clock.run();
         season.server.close();
+        // symulacja odkryła już niespodziankę (to jeden z niezmienników) - zakrywamy ją, żeby dało się ją zdrapać samemu
+        const db = require('../models/Database');
+        const s = await db.Season.findOne({ year: 2027 });
+        if (s && s.winnerSurprise) s.winnerSurprise = { ...s.winnerSurprise, revealedBy: [] };
+        require('../services/cache').invalidate();
         const app = require('../server');
         const port = Number(process.env.PORT || 3000);
         app.listen(port, () => {

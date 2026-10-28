@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Moje typy — Żużlowy Typer</title>
     <meta name="robots" content="noindex">
-    <meta name="theme-color" content="#0b1220">
+    <meta name="theme-color" content="#0a0f1c">
     <!-- manifest z tokenem gracza: ikona na ekranie głównym otwiera od razu jego panel -->
     <script>
         (function () {
@@ -25,46 +25,61 @@
 </head>
 <body class="pb-36">
 
-    <!-- ===== KARTA GRACZA ===== -->
-    <header class="bg-night text-white" style="padding-top: env(safe-area-inset-top)">
+    <!-- ===== KARTA ZAWODNIKA (gracza) ===== -->
+    <header class="hero" style="padding-top: env(safe-area-inset-top)">
+        <svg class="hero-track" viewBox="0 0 360 220" fill="none" aria-hidden="true">
+            <ellipse cx="180" cy="110" rx="170" ry="96" stroke="white" stroke-width="22"/>
+            <ellipse cx="180" cy="110" rx="128" ry="58" stroke="white" stroke-width="2" stroke-dasharray="6 8"/>
+        </svg>
         <div class="mx-auto max-w-lg px-4 pt-3 pb-4">
             <div class="flex items-start gap-3">
+                <span id="p-helmet" class="mt-1"><span class="helmet helmet-lg h-white" aria-hidden="true"><span>…</span></span></span>
                 <div class="min-w-0 flex-1">
-                    <div class="text-[11px] font-bold uppercase tracking-wider text-white/50" id="p-season">Sezon</div>
-                    <h1 id="p-nick" class="text-2xl font-black truncate">Wczytywanie…</h1>
-                    <div id="p-chasing" class="text-xs font-semibold text-white/70 mt-0.5"></div>
+                    <div class="text-[11px] font-bold uppercase tracking-wider text-white/55" id="p-season">Sezon</div>
+                    <h1 id="p-nick" class="display text-2xl sm:text-3xl truncate">Wczytywanie…</h1>
+                    <div id="p-chasing" class="text-xs font-semibold text-white/75 mt-1"></div>
                 </div>
                 <a href="/" class="btn btn-sm bg-white/10 text-white" aria-label="Strona główna">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg>
-                    Ranking
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 21V11M12 21V5M16 21v-7"/></svg>
+                    <span class="hidden min-[400px]:inline">Ranking</span>
                 </a>
             </div>
             <div class="grid grid-cols-4 gap-2 mt-4 text-center">
-                <div class="rounded-xl bg-white/5 py-2"><div class="text-[10px] font-bold uppercase text-white/50">Miejsce</div><div id="p-rank" class="text-lg font-black tabular-nums">-</div></div>
-                <div class="rounded-xl bg-white/5 py-2"><div class="text-[10px] font-bold uppercase text-white/50">Punkty</div><div id="p-pts" class="text-lg font-black tabular-nums">-</div></div>
-                <div class="rounded-xl bg-white/5 py-2"><div class="text-[10px] font-bold uppercase text-white/50">Dokładne</div><div id="p-snipers" class="text-lg font-black tabular-nums">-</div></div>
-                <div class="rounded-xl bg-white/5 py-2"><div class="text-[10px] font-bold uppercase text-white/50">Śr./mecz</div><div id="p-avg" class="text-lg font-black tabular-nums">-</div></div>
+                <div class="rounded-xl bg-white/5 border border-white/10 py-2"><div class="text-[10px] font-bold uppercase text-white/50">Miejsce</div><div id="p-rank" class="led text-lg">-</div></div>
+                <div class="rounded-xl bg-white/5 border border-white/10 py-2"><div class="text-[10px] font-bold uppercase text-white/50">Punkty</div><div id="p-pts" class="led text-lg">-</div></div>
+                <div class="rounded-xl bg-white/5 border border-white/10 py-2"><div class="text-[10px] font-bold uppercase text-white/50">Dokładne</div><div id="p-snipers" class="led text-lg">-</div></div>
+                <div class="rounded-xl bg-white/5 border border-white/10 py-2"><div class="text-[10px] font-bold uppercase text-white/50">Śr./mecz</div><div id="p-avg" class="led text-lg">-</div></div>
             </div>
-            <div class="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-white/5 border border-white/10 px-4 py-2.5">
+            <div class="gate-panel mt-3">
                 <div class="min-w-0">
-                    <div class="text-[11px] font-bold uppercase tracking-wider text-white/50">Najbliższa blokada</div>
-                    <div id="countdown-match" class="text-sm font-semibold text-white/80 truncate">—</div>
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span id="countdown-lights" class="shrink-0"></span>
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-white/55 truncate">Blokada typów</span>
+                    </div>
+                    <div id="countdown-match" class="text-sm font-semibold text-white/85 truncate mt-1">—</div>
                 </div>
-                <span id="countdown" class="font-mono text-lg font-black text-gold tabular-nums whitespace-nowrap">--:--</span>
+                <span id="countdown" class="led-box text-lg whitespace-nowrap">--:--</span>
             </div>
         </div>
+        <div class="gate-stripe"></div>
     </header>
 
     <main class="mx-auto max-w-lg px-4 py-4 space-y-4">
         <div id="blocked-box" class="hidden card card-pad border-bad/40 text-bad font-bold text-sm"></div>
+
+        <!-- Mistrz Typera / podium: niespodzianka i dyplom -->
+        <section id="champ-box" class="hidden"></section>
+        <!-- wygrana kolejka -->
+        <div id="round-win" class="hidden"></div>
+
         <div id="missing-box" class="hidden rounded-2xl bg-warn/10 border border-warn/30 text-warn px-4 py-3 text-sm font-bold"></div>
 
-        <!-- POWIADOMIENIA / INSTALACJA -->
+        <!-- POWIADOMIENIA -->
         <div id="push-card" class="hidden card card-pad">
             <div class="flex items-start gap-3">
                 <span class="text-2xl" aria-hidden="true">🔔</span>
                 <div class="flex-1">
-                    <h2 class="font-extrabold">Przypomnienia o typach</h2>
+                    <h2 class="section-title">Przypomnienia o typach</h2>
                     <p id="push-text" class="text-sm text-muted">Dostaniesz powiadomienie na telefon, gdy do blokady zostaną 2 godziny, a nie masz typu.</p>
                     <div class="flex flex-wrap gap-2 mt-3">
                         <button id="push-btn" class="btn-primary btn-sm">Włącz powiadomienia</button>
@@ -77,16 +92,16 @@
         <!-- KOLEJKI -->
         <div>
             <div id="round-nav" class="scroller" role="tablist" aria-label="Kolejki"></div>
-            <div id="round-title" class="eyebrow mt-2"></div>
+            <h2 id="round-title" class="display text-2xl mt-3"></h2>
         </div>
         <div id="prediction-form" class="space-y-3">
-            <div class="skeleton h-44"></div><div class="skeleton h-44"></div>
+            <div class="skeleton h-48"></div><div class="skeleton h-48"></div>
         </div>
 
         <!-- TYPY SEZONOWE -->
         <details id="lt-card" class="card group">
             <summary class="card-pad list-none cursor-pointer flex items-center justify-between gap-2">
-                <span class="font-extrabold">🔮 Typy sezonowe</span>
+                <span class="section-title">🔮 Typy sezonowe</span>
                 <span class="flex items-center gap-2"><span id="lt-status" class="chip-ok">otwarte</span><span class="text-muted group-open:rotate-180 transition">▾</span></span>
             </summary>
             <div class="px-4 pb-4 space-y-3">
@@ -94,20 +109,21 @@
                 <div><label class="label" for="lt-champion">🥇 Mistrz Polski</label><select id="lt-champion" class="input"></select></div>
                 <div><label class="label" for="lt-bronze">🥉 Brązowy medal</label><select id="lt-bronze" class="input"></select></div>
                 <div><label class="label" for="lt-relegation">⬇️ Spadek</label><select id="lt-relegation" class="input"></select></div>
+                <p class="text-xs text-muted">Trzy różne drużyny — drużyna wybrana w jednym polu znika z pozostałych.</p>
             </div>
         </details>
 
         <!-- MOJA FORMA -->
         <section class="card card-pad">
             <div class="flex items-center justify-between mb-3">
-                <h2 class="font-extrabold">📊 Moja forma</h2>
+                <h2 class="section-title">📊 Moja forma</h2>
                 <a id="profile-link" href="/gracz.html" class="text-sm font-bold text-brand">Pełne statystyki →</a>
             </div>
             <div id="my-form" class="text-sm"></div>
         </section>
 
         <div id="install-card" class="hidden card card-pad">
-            <h2 class="font-extrabold">📲 Dodaj do ekranu głównego</h2>
+            <h2 class="section-title">📲 Dodaj do ekranu głównego</h2>
             <p id="install-text" class="text-sm text-muted mt-1"></p>
             <button id="install-btn" class="btn-primary btn-sm mt-3 hidden">Zainstaluj</button>
         </div>
@@ -115,9 +131,10 @@
 
     <!-- PASEK ZAPISU -->
     <div class="fixed bottom-0 inset-x-0 z-40 bg-surface/95 backdrop-blur border-t border-line" style="padding-bottom: env(safe-area-inset-bottom)">
+        <div class="gate-stripe opacity-80"></div>
         <div class="mx-auto max-w-lg px-4 py-3 flex items-center gap-3">
             <span id="save-state" class="text-xs font-bold text-muted w-28 shrink-0" aria-live="polite">Autozapis wł.</span>
-            <button onclick="saveAll()" id="save-btn" class="btn-primary flex-1 min-h-[52px] text-base">Zapisz typy</button>
+            <button onclick="saveAll()" id="save-btn" class="btn-primary flex-1 min-h-[52px] text-base font-black italic uppercase">Zapisz typy</button>
         </div>
     </div>
 

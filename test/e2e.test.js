@@ -387,6 +387,7 @@ async function freshMatch(startsInMin, extra = {}) {
     });
 
     await runAdminTests();
+    await runFinaleTests();
 
     await browser.close();
     server.close();
@@ -439,8 +440,9 @@ async function runAdminTests() {
         await p.fill('#admin-pass-input', ADMIN_PASS);
         await p.click('#login-modal form button');
         await p.waitForSelector('#view section');
-        assert.ok(/Wyniki do zatwierdzenia/.test(await p.locator('#view').innerText()));
-        assert.ok(/Mecze bez wyniku/.test(await p.locator('#view').innerText()));
+        // innerText uwzględnia CSS (tytuły sekcji są pisane wersalikami), więc bez rozróżniania wielkości liter
+        assert.ok(/Wyniki do zatwierdzenia/i.test(await p.locator('#view').innerText()));
+        assert.ok(/Mecze bez wyniku/i.test(await p.locator('#view').innerText()));
         assert.ok(Number(await p.locator('#tab-nav .badge-dot').innerText()) >= 2, 'licznik na ikonie Pulpitu');
         noErrors(p);
         await close(p);
@@ -789,6 +791,128 @@ async function runAdminTests() {
             await noHorizontalScroll(p);
             noErrors(p);
             await close(p);
+        }
+    });
+}
+
+/* ================================================================
+   NOWE FUNKCJE: wygrana kolejka, typy sezonowe, osiągnięcia, Mistrz Typera
+================================================================ */
+async function runFinaleTests() {
+    group('Mistrz Typera i nowy wygląd');
+    const nickToken = nick => tokenOf(PLAYERS.indexOf(nick));
+    const api = async url => (await fetch(base + url)).json();
+
+    await test('baner "wygrałeś kolejkę" dla zwycięzcy ostatniej rozliczonej kolejki; zamknięcie zapamiętane', async () => {
+        cache.invalidate();
+        const rw = (await api('/api/public/data')).roundWinners.filter(r => r.complete).pop();
+        const winner = rw.winners[0];
+        const p = await newPage();
+        await p.goto(`${base}/typuj.html?id=${nickToken(winner)}`, { waitUntil: 'networkidle' });
+        await p.waitForSelector('#round-win:not(.hidden)');
+        assert.ok((await p.locator('#round-win').textContent()).includes(`${rw.points} pkt`));
+        await p.click('#round-win-x');
+        await p.reload({ waitUntil: 'networkidle' });
+        assert.strictEqual(await p.locator('#round-win:not(.hidden)').count(), 0, 'po zamknięciu baner nie wraca');
+        const loser = PLAYERS.find(n => !rw.winners.includes(n));
+        await p.goto(`${base}/typuj.html?id=${nickToken(loser)}`, { waitUntil: 'networkidle' });
+        assert.strictEqual(await p.locator('#round-win:not(.hidden)').count(), 0, 'baner tylko dla zwycięzcy');
+        noErrors(p);
+        await close(p);
+    });
+
+    await test('typy sezonowe: drużyna wybrana w jednym polu jest niedostępna w pozostałych', async () => {
+        await db.Season.create({ year: 2031, label: 'Test 2031', isActive: false, lockMinutes: 1, teams: ['Orlen Oil Motor Lublin', 'Betard Sparta Wrocław', 'Fogo Unia Leszno', 'Gezet Stal Gorzów'], stageNames: {}, scoring: {} });
+        await db.Match.create({ season: 2031, round: 1, homeTeam: 'Orlen Oil Motor Lublin', awayTeam: 'Betard Sparta Wrocław', matchDate: new Date(Date.now() + 30 * 24 * 60 * MIN) });
+        cache.invalidate();
+        const p = await newPage();
+        try {
+            await p.goto(`${base}/typuj.html?id=${tokenOf(0)}`, { waitUntil: 'networkidle' });
+            await p.evaluate(() => window.changeSeason(2031));
+            await p.waitForFunction(() => !document.getElementById('lt-champion').disabled);
+            await p.selectOption('#lt-champion', 'Orlen Oil Motor Lublin');
+            const disabled = await p.$eval('#lt-bronze', s => [...s.options].filter(o => o.disabled).map(o => o.value));
+            assert.deepStrictEqual(disabled, ['Orlen Oil Motor Lublin']);
+            await p.selectOption('#lt-bronze', 'Fogo Unia Leszno');
+            const rel = await p.$eval('#lt-relegation', s => [...s.options].filter(o => o.disabled).map(o => o.value).sort());
+            assert.deepStrictEqual(rel, ['Fogo Unia Leszno', 'Orlen Oil Motor Lublin']);
+            await p.waitForFunction(() => /Zapisane/.test(document.getElementById('save-state').textContent), null, { timeout: 6000 });
+            const lt = db.LongTerm._rows.find(l => l.season === 2031 && l.nickname === PLAYERS[0]);
+            assert.deepStrictEqual([lt.champion, lt.bronze], ['Orlen Oil Motor Lublin', 'Fogo Unia Leszno']);
+            noErrors(p);
+        } finally {
+            await close(p);
+            db.Season._rows.splice(db.Season._rows.findIndex(x => x.year === 2031), 1);
+            for (const m of db.Match._rows.filter(x => x.season === 2031)) db.Match._rows.splice(db.Match._rows.indexOf(m), 1);
+            cache.invalidate();
+        }
+    });
+
+    await test('profil: osiągnięcia (zdobyte i do zdobycia) i kask gracza', async () => {
+        const p = await newPage();
+        await p.goto(`${base}/gracz.html?nick=${PLAYERS[2]}`, { waitUntil: 'networkidle' });
+        await p.waitForSelector('#g-achievements .ach');
+        assert.strictEqual(await p.locator('#g-achievements .ach').count(), 8);
+        assert.ok(await p.locator('#g-achievements .ach:not(.locked)').count() >= 1, 'coś już zdobyte');
+        assert.ok(await p.locator('#g-achievements .ach.locked').count() >= 1, 'coś jeszcze do zdobycia');
+        assert.strictEqual(await p.locator('#g-helmet .helmet').count(), 1);
+        await noHorizontalScroll(p);
+        noErrors(p);
+        await close(p);
+    });
+
+    await test('admin: niespodzianka dla mistrza zapisuje się i panel mówi, kto byłby mistrzem', async () => {
+        const p = await adminPage();
+        await goView(p, 'sezon/sezony');
+        assert.ok(/Sezon trwa/.test(await p.locator('#view').textContent()));
+        await p.evaluate(() => document.querySelectorAll('#view details').forEach(d => { d.open = true; }));
+        await p.fill('#fin-prize', 'Kask z autografem');
+        await p.fill('#fin-msg', 'Odbiór przy grillu');
+        await p.click('[data-act="save-surprise"]');
+        await toastHas(p, 'zapisane');
+        const s = db.Season._rows.find(x => x.year === 2027);
+        assert.deepStrictEqual([s.winnerSurprise.prize, s.winnerSurprise.message], ['Kask z autografem', 'Odbiór przy grillu']);
+        noErrors(p);
+        await close(p);
+    });
+
+    await test('koniec sezonu: baner i podium na stronie, zdrapka + dyplom u mistrza, nagroda tajna dla innych', async () => {
+        const season = db.Season._rows.find(x => x.year === 2027);
+        const keep = { isFinished: season.isFinished, winnerSurprise: season.winnerSurprise };
+        season.isFinished = true;
+        season.winnerSurprise = { prize: 'Kask z autografem', message: 'Odbiór przy grillu', revealedBy: [] };
+        cache.invalidate();
+        const p = await newPage({ ctx: { acceptDownloads: true } });
+        try {
+            const fin = (await api('/api/public/data')).finale;
+            const champ = fin.champions[0];
+            await p.goto(`${base}/#ranking`, { waitUntil: 'networkidle' });
+            await p.waitForSelector('#finale-banner:not(.hidden)');
+            assert.ok((await p.locator('#finale-banner').textContent()).includes(champ));
+            assert.ok(await p.locator('#podium .podium-step').count() >= 2, 'podium');
+            assert.ok(!(await p.content()).includes('Kask z autografem'), 'nagroda niewidoczna na stronie głównej');
+
+            await p.goto(`${base}/typuj.html?id=${nickToken(champ)}`, { waitUntil: 'networkidle' });
+            await p.waitForSelector('#surprise #sv-canvas');           // zdrapka otwiera się sama przy pierwszym wejściu
+            await p.click('#reveal-now');
+            await p.waitForFunction(() => !document.getElementById('sv-canvas'));
+            assert.ok((await p.locator('#surprise').textContent()).includes('Kask z autografem'));
+            assert.ok(await p.locator('#sv-msg:not(.invisible)').count() === 1, 'wiadomość organizatora po odkryciu');
+            await p.waitForFunction(() => /Twoja niespodzianka/.test(document.getElementById('champ-box').textContent));
+            assert.deepStrictEqual(season.winnerSurprise.revealedBy, [champ], 'serwer zapisał odkrycie');
+            const [file] = await Promise.all([p.waitForEvent('download'), p.click('#sv-diploma')]);
+            assert.ok(/^dyplom-.+-2027\.png$/.test(file.suggestedFilename()), file.suggestedFilename());
+            noErrors(p);
+
+            const other = PLAYERS.find(n => !fin.champions.includes(n));
+            await p.goto(`${base}/typuj.html?id=${nickToken(other)}`, { waitUntil: 'networkidle' });
+            assert.strictEqual(await p.locator('#surprise').count(), 0);
+            assert.ok(!(await p.content()).includes('Kask z autografem'), 'inny gracz nie widzi nagrody');
+            noErrors(p);
+        } finally {
+            await close(p);
+            Object.assign(season, keep);
+            cache.invalidate();
         }
     });
 }

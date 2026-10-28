@@ -383,7 +383,8 @@ function renderPulpit() {
     const cards = [];
 
     if (S.drafts.length) {
-        const clean = S.drafts.filter(d => !(d.blockers || []).length).length;
+        // ta sama reguła co na serwerze: bez blokerów I bez ostrzeżeń (resztę admin sprawdza pojedynczo)
+        const clean = S.drafts.filter(d => !(d.blockers || []).length && !(d.warnings || []).length).length;
         cards.push(`
         <section class="todo-card border-l-brand">
             <div class="flex flex-wrap items-center gap-2 mb-1">
@@ -450,10 +451,10 @@ function renderPulpit() {
 
     return `
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-        ${tile('Gracze', activePlayers().length, `${S.players.filter(p => !p.isActive).length} wstrzymanych`)}
-        ${tile('Rozegrane', `${played}/${ms.length}`, 'meczów sezonu')}
-        ${tile('Blokada', T.lockLabel(lock), 'przed 1. biegiem')}
-        ${tile('Lider', leader ? esc(leader.nickname) : '—', leader ? `${leader.points} pkt` : '')}
+        ${tile('Gracze', activePlayers().length, `${S.players.filter(p => !p.isActive).length} wstrzymanych`, '👥', 'gate-blue')}
+        ${tile('Rozegrane', `${played}/${ms.length}`, 'meczów sezonu', '🏁', 'ok')}
+        ${tile('Blokada', T.lockLabel(lock), 'przed 1. biegiem', '⏱️', 'brand')}
+        ${tile('Lider', leader ? esc(leader.nickname) : '—', leader ? `${leader.points} pkt` : '', '👑', 'gold')}
     </div>
     <div class="space-y-4">${cards.join('')}</div>
     <section class="card card-pad mt-4">
@@ -472,8 +473,9 @@ function renderPulpit() {
     </section>`;
 }
 
-function tile(title, value, sub) {
-    return `<div class="card p-3"><div class="eyebrow">${title}</div><div class="text-xl font-black truncate">${value}</div><div class="text-xs text-muted truncate">${sub}</div></div>`;
+function tile(title, value, sub, icon = '', color = 'brand') {
+    return `<div class="kpi" style="--k: var(--${color})"><span class="kpi-icon" aria-hidden="true">${icon}</span><div class="eyebrow">${title}</div>
+        <div class="text-xl font-black truncate pr-6">${value}</div><div class="text-xs text-muted truncate">${sub}</div></div>`;
 }
 
 function draftBlock(d) {
@@ -489,6 +491,7 @@ function draftBlock(d) {
         <p class="text-center text-xs text-muted mt-1" data-sum>suma ${d.homeScore + d.awayScore} / 90${T.hasResult(m) ? ` · w bazie ${m.homeScore}:${m.awayScore}` : ''}</p>
         ${(d.blockers || []).map(b => `<p class="mt-2 text-sm font-bold text-bad">⛔ ${esc(b)}</p>`).join('')}
         ${(d.warnings || []).map(w => `<p class="mt-1 text-sm text-warn">⚠️ ${esc(w)}</p>`).join('')}
+        ${(d.notes || []).map(n => `<p class="mt-1 text-sm text-ok font-semibold">✓ ${esc(n)}</p>`).join('')}
         ${d.snippet ? `<blockquote class="mt-2 rounded-xl bg-raised px-3 py-2 text-xs text-muted border-l-4 border-line">„${esc(d.snippet)}”</blockquote>` : ''}
         <div class="flex gap-2 mt-3">
             <button data-act="draft-approve" data-id="${d._id}" class="btn-ok flex-1">✓ Zatwierdź</button>
@@ -501,11 +504,11 @@ function draftBlock(d) {
 function scoreLine(home, away, homeAttrs, awayAttrs, cls = '') {
     return `
     <div class="grid grid-cols-[1fr_auto_auto_auto_1fr] items-center gap-2 mt-2">
-        <span class="text-right font-bold text-sm leading-tight">${esc(short(home))}</span>
-        <input type="number" inputmode="numeric" min="0" max="75" class="mini-score ${cls}" aria-label="Gospodarze: ${esc(home)}" ${homeAttrs}>
+        <span class="text-right font-bold text-sm leading-tight min-w-0 break-words">${esc(short(home))}</span>
+        <input type="number" inputmode="numeric" min="0" max="75" placeholder="–" class="mini-score ${cls}" aria-label="Gospodarze: ${esc(home)}" ${homeAttrs}>
         <span class="text-lg font-black text-faint">:</span>
-        <input type="number" inputmode="numeric" min="0" max="75" class="mini-score ${cls}" aria-label="Goście: ${esc(away)}" ${awayAttrs}>
-        <span class="font-bold text-sm leading-tight">${esc(short(away))}</span>
+        <input type="number" inputmode="numeric" min="0" max="75" placeholder="–" class="mini-score ${cls}" aria-label="Goście: ${esc(away)}" ${awayAttrs}>
+        <span class="font-bold text-sm leading-tight min-w-0 break-words">${esc(short(away))}</span>
     </div>`;
 }
 
@@ -595,7 +598,7 @@ function matchCard(m) {
         m.resultSource === 'scraper' ? '<span class="chip-muted" title="Wynik zatwierdzony ze scrapera">🤖</span>' : ''
     ].join('');
     return `
-    <article class="card card-pad" data-card="${m._id}">
+    <article class="race-card card-pad ${m.isMatchOfTheRound ? 'kask' : ''}" data-card="${m._id}">
         <div class="flex items-center justify-between gap-2">
             <span class="text-xs font-bold text-muted">${when(m)}</span>
             <span class="flex flex-wrap justify-end gap-1">${flags}<span class="${st.cls}">${esc(st.text)}</span></span>
@@ -966,8 +969,10 @@ function renderPuchar() {
             <h3 class="eyebrow mt-3 mb-1">${esc(st)}</h3>
             <ul class="divide-y divide-line">${cups.filter(c => c.stage === st).map(c => `
                 <li class="flex items-center gap-2 py-2 text-sm">
-                    <span class="flex-1 min-w-0"><strong>${esc(c.player1)}</strong> <span class="tabular-nums font-black">${c.score1 ?? '–'}:${c.score2 ?? '–'}</span> <strong>${esc(c.player2)}</strong>
-                        <span class="block text-xs text-muted">${c.roundNumber ? esc(T.roundName(c.roundNumber, S.data.season.stageNames)) : 'bez kolejki'}${c.autoScore ? ' · liczone automatycznie' : ' · ręcznie'}</span></span>
+                    <span class="flex-1 min-w-0"><strong class="${c.winner === c.player1 ? 'text-ok' : ''}">${c.winner === c.player1 ? '👑 ' : ''}${esc(c.player1)}</strong>
+                        <span class="led-box text-sm mx-1 !px-2 !py-0.5 ${c.score1 === null ? 'idle' : ''}">${c.score1 ?? '–'}:${c.score2 ?? '–'}</span>
+                        <strong class="${c.winner === c.player2 ? 'text-ok' : ''}">${esc(c.player2)}${c.winner === c.player2 ? ' 👑' : ''}</strong>
+                        <span class="block text-xs text-muted mt-0.5">${c.roundNumber ? esc(T.roundName(c.roundNumber, S.data.season.stageNames)) : 'bez kolejki'}${c.autoScore ? ' · liczone automatycznie' : ' · ręcznie'}${c.live ? ' · trwa' : ''}${c.decidedBy && c.decidedBy !== 'points' ? ` · ${{ exact: 'remis: więcej dokładnych', error: 'remis: mniejsza pomyłka', seed: 'pełny remis: rozstawienie' }[c.decidedBy]}` : ''}</span></span>
                     <button data-act="cup-delete" data-id="${c._id}" class="btn-ghost btn-sm !px-2.5" aria-label="Usuń parę">✕</button>
                 </li>`).join('')}</ul>`).join('') : '<p class="text-sm text-muted">Drabinka jest pusta. Rozstaw pary poniżej.</p>'}
     </section>
@@ -986,7 +991,7 @@ function renderPuchar() {
         <div class="grid grid-cols-2 gap-2">
             <div><label class="label" for="cm-stage">Faza</label><input id="cm-stage" class="input"></div>
             <div><label class="label" for="cm-round">Kolejka</label><select id="cm-round" class="input">${ropts}</select></div>
-            <div><label class="label" for="cm-p1">Gracz 1</label><select id="cm-p1" class="input">${popts}</select></div>
+            <div><label class="label" for="cm-p1">Gracz 1 (pole A — wyżej rozstawiony)</label><select id="cm-p1" class="input">${popts}</select></div>
             <div><label class="label" for="cm-p2">Gracz 2</label><select id="cm-p2" class="input">${popts}</select></div>
             <div><label class="label" for="cm-s1">Punkty 1 (puste = auto)</label><input id="cm-s1" type="number" class="input"></div>
             <div><label class="label" for="cm-s2">Punkty 2 (puste = auto)</label><input id="cm-s2" type="number" class="input"></div>
@@ -1029,7 +1034,10 @@ function sezonUstawienia(info) {
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
             ${field('set-exact', 'exact', 'Dokładny wynik')}${field('set-diff', 'diff', 'Zwycięzca + różnica')}${field('set-winner', 'winner', 'Zwycięzca')}
             ${field('set-motr', 'motrBonus', 'Bonus Złoty Kask')}${field('set-joker', 'jokerMultiplier', 'Mnożnik Jokera')}${field('set-lt', 'longTermEach', 'Typ sezonowy (każdy)')}
+            ${field('set-tol', 'diffTolerance', 'Tolerancja różnicy (± pkt)')}
         </div>
+        <p class="text-xs text-muted mt-2">💡 <strong>Tolerancja różnicy</strong>: w żużlu suma to prawie zawsze 90, więc przy 0 „trafiona różnica” = dokładny wynik i ${sc.diff} pkt prawie się nie zdarzają.
+            Przy 4: różnica typu najwyżej o 4 od różnicy meczu (np. 48:42 przy 46:44) daje ${sc.diff} pkt — wg symulacji ok. 20% typów. Szczegóły w SYMULACJA.md.</p>
         <button data-act="save-scoring" class="btn-primary mt-3">Zapisz i przelicz</button>
     </section>`;
 }
@@ -1099,6 +1107,7 @@ function sezonSezony(info) {
     const slots = [[4, '18:00'], [4, '20:30'], [6, '16:00'], [6, '19:15']];
     const topts = sel => '<option value="">—</option>' + teams.map(t => `<option value="${esc(t)}" ${sel === t ? 'selected' : ''}>${esc(t)}</option>`).join('');
     const res = (info && info.results) || {};
+    const ws = (info && info.winnerSurprise) || { prize: '', message: '', revealedBy: [] };
     return `
     <section class="card card-pad mb-4">
         <h2 class="section-title mb-3">Sezony w bazie</h2>
@@ -1159,19 +1168,48 @@ function sezonSezony(info) {
         </div>
     </details>
 
-    <details class="card group">
-        <summary class="card-pad cursor-pointer list-none flex items-center justify-between"><span class="section-title">🏆 Zakończenie sezonu ${S.season}</span><span class="text-muted group-open:rotate-180 transition">▾</span></summary>
+    <details class="card group" ${S.data.season.isFinished ? 'open' : ''}>
+        <summary class="card-pad cursor-pointer list-none flex items-center justify-between"><span class="section-title">🏆 Zakończenie sezonu ${S.season} i Mistrz Typera</span><span class="text-muted group-open:rotate-180 transition">▾</span></summary>
         <div class="px-4 pb-4">
+            ${finaleStatus(info)}
+            <h3 class="eyebrow mt-4 mb-1">🎁 Niespodzianka dla Mistrza Typera</h3>
+            <p class="text-sm text-muted mb-2">Zobaczy ją tylko zwycięzca — w swoim panelu, jako zdrapkę z konfetti, gdy zamkniesz sezon. Pozostali widzą podium, ale nie treść nagrody.</p>
+            <div class="grid gap-2">
+                <div><label class="label" for="fin-prize">Nagroda</label><input id="fin-prize" class="input" maxlength="200" value="${esc(ws.prize)}" placeholder="np. kask z autografem, bilety na finał, pizza na koszt reszty"></div>
+                <div><label class="label" for="fin-msg">Wiadomość od organizatora</label><textarea id="fin-msg" rows="2" maxlength="1000" class="input py-2" placeholder="np. Odbiór nagrody przy grillu na otwarcie sezonu!">${esc(ws.message)}</textarea></div>
+            </div>
+            <button data-act="save-surprise" class="btn-ghost btn-sm mt-2">Zapisz niespodziankę</button>
+
+            <h3 class="eyebrow mt-5 mb-1">Wyniki ligi i typy sezonowe</h3>
             <p class="text-sm text-muted mb-3">Wskaż wyniki ligi — gracze dostaną punkty za trafione typy sezonowe (${S.data.season.scoring.longTermEach} pkt za każdy).</p>
             <div class="grid sm:grid-cols-3 gap-2">
                 <div><label class="label" for="fin-c">Mistrz Polski</label><select id="fin-c" class="input">${topts(res.champion)}</select></div>
                 <div><label class="label" for="fin-b">Brąz</label><select id="fin-b" class="input">${topts(res.bronze)}</select></div>
                 <div><label class="label" for="fin-r">Spadek</label><select id="fin-r" class="input">${topts(res.relegation)}</select></div>
             </div>
-            <label class="option-row"><span><span class="font-bold">Zamknij sezon (archiwum)</span><span class="hint block">Gracze nie będą mogli typować. Można otworzyć ponownie.</span></span><input type="checkbox" id="fin-mark" class="switch"></label>
+            <label class="option-row"><span><span class="font-bold">Zamknij sezon i ogłoś Mistrza Typera</span><span class="hint block">Gracze nie będą mogli typować. Mistrz dostaje powiadomienie i zdrapkę z niespodzianką, reszta — wiadomość o końcu sezonu. Można otworzyć ponownie.</span></span><input type="checkbox" id="fin-mark" class="switch" ${S.data.season.isFinished ? 'checked' : ''}></label>
             <button data-act="finish-season" class="btn-primary btn-sm mt-2">Rozlicz typy sezonowe</button>
         </div>
     </details>`;
+}
+
+/** Kto zostanie / został Mistrzem Typera i czy odebrał niespodziankę. */
+function finaleStatus(info) {
+    const ws = (info && info.winnerSurprise) || { revealedBy: [] };
+    const rank = S.data.ranking || [];
+    const f = S.data.finale;
+    if (f) {
+        return `<div class="champ-card !p-4 flex items-center gap-3">
+            <span class="text-3xl" aria-hidden="true">🏆</span>
+            <div class="min-w-0 flex-1"><div class="text-[11px] font-bold uppercase tracking-wider text-gold">Mistrz Typera ${S.season}</div>
+                <div class="display text-2xl truncate">${f.champions.map(esc).join(', ')}</div>
+                <div class="text-xs text-white/75 mt-1">${f.champions.map(n => `${esc(n)}: ${ws.revealedBy.includes(n) ? '🎁 niespodzianka odebrana ✓' : f.hasSurprise ? 'jeszcze nie zdrapał karty' : 'brak niespodzianki — dopisz ją poniżej'}`).join(' · ')}</div></div>
+        </div>`;
+    }
+    const top = rank.filter(r => r.points > 0 && r.position === 1);
+    return `<div class="rounded-2xl border border-gold/40 bg-gold/5 p-3 text-sm">
+        <strong>Sezon trwa.</strong> ${top.length ? `Gdyby zamknąć go teraz, Mistrzem Typera ${top.length > 1 ? 'zostaliby ex aequo' : 'zostałby'}: <strong>${top.map(r => esc(r.nickname)).join(', ')}</strong> (${top[0].points} pkt).` : 'Nikt jeszcze nie zdobył punktów.'}
+    </div>`;
 }
 
 /* ---------------- SYSTEM ---------------- */
@@ -1578,8 +1616,15 @@ const ACTIONS = {
         const v = id => document.getElementById(id).value;
         const mark = document.getElementById('fin-mark').checked;
         if (!v('fin-c') && !v('fin-b') && !v('fin-r')) return T.toast('Wskaż przynajmniej jedną drużynę.', 'err');
-        if (!(await confirmBox({ title: 'Rozliczyć typy sezonowe?', message: `Mistrz: ${esc(v('fin-c') || '—')}, brąz: ${esc(v('fin-b') || '—')}, spadek: ${esc(v('fin-r') || '—')}.${mark ? ' Sezon zostanie zamknięty.' : ''}`, confirm: 'Rozlicz' }))) return;
-        await act('/api/admin/season/finish', { champion: v('fin-c'), bronze: v('fin-b'), relegation: v('fin-r'), markFinished: mark }, { btn });
+        const picked = [v('fin-c'), v('fin-b'), v('fin-r')].filter(Boolean);
+        if (new Set(picked).size !== picked.length) return T.toast('Mistrz, brąz i spadkowicz muszą być różnymi drużynami.', 'err');
+        const leaders = (S.data.ranking || []).filter(r => r.points > 0 && r.position === 1).map(r => r.nickname);
+        if (!(await confirmBox({ title: mark ? 'Zamknąć sezon i ogłosić mistrza?' : 'Rozliczyć typy sezonowe?', message: `Mistrz Polski: ${esc(v('fin-c') || '—')}, brąz: ${esc(v('fin-b') || '—')}, spadek: ${esc(v('fin-r') || '—')}.${mark ? ` Sezon zostanie zamknięty${leaders.length ? `, a Mistrzem Typera zostanie ${esc(leaders.join(', '))} (po doliczeniu typów sezonowych kolejność może się zmienić)` : ''}.` : ''}`, confirm: mark ? 'Zamknij i ogłoś' : 'Rozlicz' }))) return;
+        await act('/api/admin/season/finish', { champion: v('fin-c'), bronze: v('fin-b'), relegation: v('fin-r'), markFinished: mark, prize: v('fin-prize'), message: v('fin-msg') }, { btn });
+    },
+    'save-surprise': async btn => {
+        const v = id => document.getElementById(id).value;
+        await act('/api/admin/season/settings', { winnerSurprise: { prize: v('fin-prize'), message: v('fin-msg') } }, { btn });
     },
 
     /* --- system --- */
