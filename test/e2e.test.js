@@ -82,41 +82,53 @@ async function freshMatch(startsInMin, extra = {}) {
     /* ============================================================ */
     group('Strona główna');
 
-    await test('ładuje się bez błędów i bez poziomego przewijania (telefon i komputer)', async () => {
+    await test('ładuje się bez błędów i bez poziomego przewijania (telefon i komputer, wszystkie zakładki i zasady)', async () => {
         const p = await newPage();
         await p.goto(base + '/', { waitUntil: 'networkidle' });
-        await p.waitForSelector('#matches-container article');
+        await p.waitForSelector('#start-top li');
         await noHorizontalScroll(p);
+        await p.goto(base + '/#mecze', { waitUntil: 'networkidle' });
+        await p.waitForSelector('#matches-container article');
         noErrors(p);
         await close(p);
         const d = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
         await d.route(url => !url.href.startsWith(base), r => r.abort());
         const dp = await d.newPage();
         const errs = []; dp.on('pageerror', e => errs.push(e.message));
-        await dp.goto(base + '/', { waitUntil: 'networkidle' });
-        await noHorizontalScroll(dp);
+        for (const url of ['/', '/#mecze', '/#tabela', '/#ranking', '/#puchar', '/#wiecej', '/zasady']) {
+            await dp.goto(base + url, { waitUntil: 'networkidle' });
+            await noHorizontalScroll(dp);
+        }
         assert.deepStrictEqual(errs, []);
         await d.close();
+        const m = await newPage();
+        for (const url of ['/#tabela', '/#ranking', '/#puchar', '/#wiecej', '/zasady']) {
+            await m.goto(base + url, { waitUntil: 'networkidle' });
+            await noHorizontalScroll(m);
+        }
+        noErrors(m);
+        await close(m);
     });
 
     await test('dolna nawigacja przełącza sekcje i zmienia adres (#ranking)', async () => {
         const p = await newPage();
         await p.goto(base + '/', { waitUntil: 'networkidle' });
-        for (const [tab, sel] of [['ranking', '#ranking-list li'], ['tabela', '#league-table-body tr'], ['puchar', '#cup-container .card'], ['wiecej', '#rules-content h4']]) {
+        assert.ok(await p.locator('#tab-start:not(.hidden)').count() === 1, 'strona startowa domyślnie');
+        for (const [tab, sel] of [['ranking', '#ranking-list li'], ['tabela', '#league-table-body tr'], ['puchar', '#cup-container .card'], ['wiecej', '#alltime-list li .font-bold'], ['mecze', '#matches-container article']]) {
             await p.locator(`nav.tabbar a[data-tab="${tab}"]`).click();
             await p.waitForSelector(`#tab-${tab}:not(.hidden)`);
             assert.ok(p.url().endsWith(`#${tab}`));
             assert.ok(await p.locator(sel).count() > 0, `sekcja ${tab} jest pusta`);
         }
         await p.goBack();
-        await p.waitForSelector('#tab-puchar:not(.hidden)');
+        await p.waitForSelector('#tab-wiecej:not(.hidden)');
         noErrors(p);
         await close(p);
     });
 
     await test('wybór kolejki chipem zmienia listę meczów', async () => {
         const p = await newPage();
-        await p.goto(base + '/', { waitUntil: 'networkidle' });
+        await p.goto(base + '/#mecze', { waitUntil: 'networkidle' });
         const before = await p.locator('#round-title').textContent();
         await p.locator('#round-nav button').first().click();
         assert.notStrictEqual(await p.locator('#round-title').textContent(), before);
@@ -127,7 +139,7 @@ async function freshMatch(startsInMin, extra = {}) {
 
     await test('typy na przyszły mecz są ukryte (kłódka), na rozegrany jawne z punktami', async () => {
         const p = await newPage();
-        await p.goto(base + '/', { waitUntil: 'networkidle' });
+        await p.goto(base + '/#mecze', { waitUntil: 'networkidle' });
         const future = db.Match._rows.find(m => m.homeScore === null && !m.predictionsFrozen && new Date(m.matchDate) > Date.now() + MIN * 60 && db.Prediction._rows.some(x => x.matchId === String(m._id)));
         await p.evaluate(r => window.changeRound(r), future.round);
         const html = await p.locator('#matches-container').innerHTML();
@@ -138,14 +150,53 @@ async function freshMatch(startsInMin, extra = {}) {
         await close(p);
     });
 
-    await test('Więcej: H2H, ranking wszech czasów, regulamin z blokadą "1 min"', async () => {
+    await test('Więcej: H2H, ranking wszech czasów, odnośnik do zasad', async () => {
         const p = await newPage();
         await p.goto(base + '/#wiecej', { waitUntil: 'networkidle' });
         await p.waitForSelector('#alltime-list li .font-bold');
         await p.selectOption('#h2h-a', 'Marek');
         await p.selectOption('#h2h-b', 'Kasia');
         await p.waitForFunction(() => /wspólnych/.test(document.getElementById('h2h-result').textContent));
-        assert.ok(/1 min przed pierwszym biegiem/.test(await p.locator('#rules-content').innerText()));
+        assert.ok(await p.locator('#tab-wiecej a[href="/zasady"]').count() === 1);
+        noErrors(p);
+        await close(p);
+    });
+
+    await test('strona startowa: powitanie, bieżąca kolejka, czołówka, ostatnie wyniki, sezon w liczbach', async () => {
+        const p = await newPage();
+        await p.goto(base + '/', { waitUntil: 'networkidle' });
+        assert.ok(/Witaj/i.test(await p.locator('#h-start').textContent()));
+        assert.ok(await p.locator('#start-round li').count() >= 1, 'mecze kolejki');
+        assert.strictEqual(await p.locator('#start-top li').count(), 5, 'czołówka');
+        assert.ok(await p.locator('#start-results li').count() >= 1, 'wyniki');
+        assert.strictEqual(await p.locator('#start-stats .kpi').count(), 4);
+        assert.ok(await p.locator('#tab-start a[href="/zasady"]').count() >= 1, 'odnośnik do zasad');
+        await noHorizontalScroll(p);
+        // telefon zna link gracza -> powitanie po imieniu i przycisk do typowania
+        await p.evaluate(t => localStorage.setItem('typerToken', t), tokenOf(0));
+        await p.reload({ waitUntil: 'networkidle' });
+        await p.waitForFunction(n => document.getElementById('h-start').textContent.includes(n), PLAYERS[0]);
+        assert.ok(await p.locator(`#start-cta a[href*="${tokenOf(0)}"]`).count() === 1);
+        await noHorizontalScroll(p);
+        noErrors(p);
+        await close(p);
+    });
+
+    await test('strona z zasadami: liczby z ustawień sezonu, przykłady, spis treści i pytania', async () => {
+        const p = await newPage();
+        await p.goto(base + '/zasady', { waitUntil: 'networkidle' });
+        await p.waitForSelector('#z-sections .rule-block');
+        const text = await p.locator('main').textContent();
+        assert.ok(/1 min przed pierwszym biegiem/.test(text), 'blokada z ustawień sezonu');
+        assert.ok(await p.locator('#z-examples tr').count() >= 4, 'przykłady punktacji');
+        assert.ok(await p.locator('#z-faq details').count() >= 5, 'pytania');
+        assert.ok(await p.locator('#z-toc a').count() >= 8, 'spis treści');
+        await p.click('#z-toc a[href="#puchar"]');
+        await p.waitForFunction(() => location.hash === '#puchar');
+        await p.locator('#z-faq summary').first().click();
+        assert.ok(await p.locator('#z-faq details[open]').count() === 1);
+        await noHorizontalScroll(p);
+        assert.strictEqual((await (await fetch(base + '/regulamin')).text()).includes('Zasady gry'), true, 'adres /regulamin też działa');
         noErrors(p);
         await close(p);
     });

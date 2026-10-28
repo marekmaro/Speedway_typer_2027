@@ -9,8 +9,9 @@
 // __V__ podmienia serwer na skrót plików CSS/JS - każdy deploy = nowa wersja = świeży cache
 const VERSION = 'typer-__V__';
 const SHELL = [
-    '/', '/typuj.html', '/gracz.html',
+    '/', '/typuj.html', '/gracz.html', '/zasady',
     '/css/app.css?v=__V__', '/js/shared.js?v=__V__', '/js/main.js?v=__V__', '/js/typuj.js?v=__V__', '/js/gracz.js?v=__V__',
+    '/js/rules.js?v=__V__', '/js/zasady.js?v=__V__',
     '/icons/icon-192.png', '/icons/badge-72.png', '/icons/icon.svg'
 ];
 

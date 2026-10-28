@@ -37,10 +37,12 @@
             </div>
 
             <nav class="hidden md:flex gap-1 mt-4" aria-label="Sekcje">
+                <a href="#start" class="toplink" data-tab="start">Start</a>
                 <a href="#mecze" class="toplink" data-tab="mecze">Mecze</a>
                 <a href="#tabela" class="toplink" data-tab="tabela">Tabela</a>
                 <a href="#ranking" class="toplink" data-tab="ranking">Ranking</a>
                 <a href="#puchar" class="toplink" data-tab="puchar">Puchar</a>
+                <a href="/zasady" class="toplink">Zasady</a>
                 <a href="#wiecej" class="toplink" data-tab="wiecej">Więcej</a>
             </nav>
 
@@ -65,8 +67,56 @@
         <!-- Mistrz Typera po zamknięciu sezonu -->
         <section id="finale-banner" class="hidden mb-4" aria-live="polite"></section>
 
+        <!-- ===== START (strona główna) ===== -->
+        <section id="tab-start" class="tab-panel space-y-4" aria-labelledby="h-start">
+            <div class="card overflow-hidden">
+                <div class="gate-stripe"></div>
+                <div class="card-pad">
+                    <h2 id="h-start" class="display text-2xl sm:text-3xl">Witaj w Żużlowym Typerze!</h2>
+                    <p id="start-lead" class="text-sm text-muted mt-2">Typujemy wyniki meczów PGE Ekstraligi w gronie znajomych: punkty za trafienia, Joker, Złoty Kask, Puchar Typerów i tytuł Mistrza Typera z niespodzianką.</p>
+                    <div id="start-cta" class="flex flex-wrap gap-2 mt-3">
+                        <a href="/zasady" class="btn-primary btn-sm">📜 Zasady gry</a>
+                        <a href="#ranking" class="btn-ghost btn-sm">📊 Ranking</a>
+                    </div>
+                </div>
+            </div>
+            <div class="grid gap-4 grid-cols-1 md:grid-cols-2">
+                <div class="card card-pad min-w-0">
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                        <h3 id="start-round-title" class="section-title truncate">🏁 Najbliższa kolejka</h3>
+                        <a href="#mecze" class="text-sm font-bold text-brand whitespace-nowrap">Wszystkie →</a>
+                    </div>
+                    <ul id="start-round" class="divide-y divide-line"><li class="py-3"><div class="skeleton h-10"></div></li></ul>
+                </div>
+                <div class="card card-pad min-w-0">
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                        <h3 class="section-title">🏆 Czołówka typerów</h3>
+                        <a href="#ranking" class="text-sm font-bold text-brand whitespace-nowrap">Ranking →</a>
+                    </div>
+                    <ol id="start-top" class="divide-y divide-line"></ol>
+                </div>
+                <div class="card card-pad min-w-0">
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                        <h3 class="section-title">📋 Ostatnie wyniki</h3>
+                        <a href="#tabela" class="text-sm font-bold text-brand whitespace-nowrap">Tabela →</a>
+                    </div>
+                    <ul id="start-results" class="divide-y divide-line"></ul>
+                </div>
+                <div class="card card-pad min-w-0">
+                    <h3 class="section-title mb-3">📈 Sezon w liczbach</h3>
+                    <div id="start-stats" class="grid grid-cols-2 gap-2"></div>
+                </div>
+            </div>
+            <a href="/zasady" class="card card-pad flex items-center gap-3 hover:bg-raised">
+                <span class="text-3xl" aria-hidden="true">📜</span>
+                <span class="min-w-0 flex-1"><span class="block section-title">Zasady gry</span>
+                    <span class="text-sm text-muted">Punkty, Joker, Złoty Kask, deszcz i walkowery — wszystko w dwie minuty</span></span>
+                <span class="text-muted text-xl" aria-hidden="true">›</span>
+            </a>
+        </section>
+
         <!-- ===== MECZE ===== -->
-        <section id="tab-mecze" class="tab-panel" aria-labelledby="h-mecze">
+        <section id="tab-mecze" class="tab-panel hidden" aria-labelledby="h-mecze">
             <h2 id="h-mecze" class="sr-only">Mecze</h2>
             <div id="season-empty" class="hidden card card-pad mb-4">
                 <p class="font-bold">Sezon nie ma jeszcze terminarza.</p>
@@ -193,13 +243,12 @@
                 </div>
             </details>
 
-            <details class="card group" open>
-                <summary class="card-pad cursor-pointer list-none flex items-center justify-between">
-                    <span class="section-title">📜 Regulamin</span>
-                    <span class="text-muted group-open:rotate-180 transition">▾</span>
-                </summary>
-                <div id="rules-content" class="px-4 pb-5 grid gap-3 md:grid-cols-2 text-sm leading-relaxed"></div>
-            </details>
+            <a href="/zasady" class="card card-pad flex items-center gap-3 hover:bg-raised">
+                <span class="text-3xl" aria-hidden="true">📜</span>
+                <span class="min-w-0 flex-1"><span class="block section-title">Zasady gry i regulamin</span>
+                    <span class="text-sm text-muted">Jak zacząć, punktacja z przykładami, Joker, puchar, deszcz, walkowery i najczęstsze pytania</span></span>
+                <span class="text-muted text-xl" aria-hidden="true">›</span>
+            </a>
 
             <div id="install-card" class="card card-pad hidden">
                 <h3 class="section-title mb-1">📲 Zainstaluj aplikację</h3>
@@ -214,7 +263,9 @@
     <a id="my-fab" href="#" class="fab hidden" aria-label="Moje typy"><span class="text-lg" aria-hidden="true">🏁</span>Typuj</a>
 
     <!-- ===== DOLNA NAWIGACJA (telefon) ===== -->
-    <nav class="tabbar grid-cols-5" aria-label="Sekcje">
+    <nav class="tabbar grid-cols-6" aria-label="Sekcje">
+        <a href="#start" class="tab-link" data-tab="start">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg>Start</a>
         <a href="#mecze" class="tab-link" data-tab="mecze">
             <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Mecze</a>
         <a href="#tabela" class="tab-link" data-tab="tabela">

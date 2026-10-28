@@ -66,7 +66,7 @@ app.get('/manifest.webmanifest', (req, res) => {
    pobierają nowe pliki, a stary cache PWA jest usuwany. Nic nie trzeba podbijać ręcznie.
 ------------------------------------------------------------------- */
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const VERSIONED = ['css/app.css', 'js/shared.js', 'js/main.js', 'js/typuj.js', 'js/gracz.js', 'js/admin.js', 'sw.js'];
+const VERSIONED = ['css/app.css', 'js/shared.js', 'js/main.js', 'js/typuj.js', 'js/gracz.js', 'js/admin.js', 'js/rules.js', 'js/zasady.js', 'sw.js'];
 const IS_PROD = process.env.NODE_ENV === 'production';
 let cachedVersion = null;
 
@@ -101,6 +101,7 @@ app.get('/sw.js', (req, res, next) => {
 app.get(['/', '/index.html'], sendVersioned('index.html', 'html'));
 app.get(['/typuj', '/typuj.html'], sendVersioned('typuj.html', 'html'));
 app.get(['/gracz', '/gracz.html'], sendVersioned('gracz.html', 'html'));
+app.get(['/zasady', '/zasady.html', '/regulamin'], sendVersioned('zasady.html', 'html'));
 app.get(['/admin', '/admin.html'], sendVersioned('admin.html', 'html'));
 
 app.use(express.static(PUBLIC_DIR, {

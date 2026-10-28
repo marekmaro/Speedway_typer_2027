@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Zasady gry — Żużlowy Typer</title>
+    <meta name="description" content="Jak grać w Żużlowego Typera: typowanie wyników PGE Ekstraligi, punktacja, Joker, Złoty Kask, typy sezonowe, Puchar Typerów i sytuacje żużlowe.">
+    <meta name="theme-color" content="#0a0f1c">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="stylesheet" href="/css/app.css?v=__V__">
+</head>
+<body class="pb-10">
+    <header class="hero" style="padding-top: env(safe-area-inset-top)">
+        <svg class="hero-track" viewBox="0 0 360 220" fill="none" aria-hidden="true">
+            <ellipse cx="180" cy="110" rx="170" ry="96" stroke="white" stroke-width="22"/>
+            <ellipse cx="180" cy="110" rx="128" ry="58" stroke="white" stroke-width="2" stroke-dasharray="6 8"/>
+        </svg>
+        <div class="mx-auto max-w-3xl px-4 pt-3 pb-5">
+            <div class="flex items-center justify-between gap-2">
+                <a href="/" class="inline-flex items-center gap-1 text-sm font-bold text-white/70 hover:text-white min-h-[44px]">← Strona główna</a>
+                <a id="z-panel" href="#" class="hidden btn btn-sm bg-white text-night font-black italic uppercase">🏁 Moje typy</a>
+            </div>
+            <div class="text-[11px] font-bold uppercase tracking-wider text-gold" id="z-season">Żużlowy Typer</div>
+            <h1 class="display text-4xl mt-1">Zasady gry</h1>
+            <p class="text-sm text-white/75 mt-2 max-w-xl">Typujemy wyniki meczów PGE Ekstraligi w gronie znajomych. Wszystko, co trzeba wiedzieć — w dwie minuty.</p>
+            <div id="z-facts" class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4"></div>
+        </div>
+        <div class="gate-stripe"></div>
+    </header>
+
+    <nav class="sticky top-0 z-30 bg-bg/95 backdrop-blur border-b border-line" aria-label="Spis treści">
+        <div id="z-toc" class="scroller mx-auto max-w-3xl py-2"></div>
+    </nav>
+
+    <main class="mx-auto max-w-3xl px-4 py-4 space-y-4">
+        <div id="z-error" class="hidden card card-pad text-bad font-bold"></div>
+
+        <section id="jak-zaczac" class="card card-pad scroll-mt-16">
+            <h2 class="section-title text-lg mb-3">🚀 Jak zacząć</h2>
+            <ol class="grid gap-3 sm:grid-cols-2" id="z-start"></ol>
+        </section>
+
+        <section id="przyklad" class="card card-pad scroll-mt-16">
+            <h2 class="section-title text-lg mb-1">🧮 Przykład: mecz kończy się 46:44</h2>
+            <p class="text-sm text-muted mb-3">Gospodarze wygrali dwoma punktami. Tyle dostaje typer za taki typ:</p>
+            <div id="z-tiles" class="grid grid-cols-4 gap-2 text-center mb-3"></div>
+            <table class="w-full text-sm">
+                <thead class="text-[11px] uppercase tracking-wider text-muted border-b border-line">
+                    <tr><th class="py-2 text-left">Typ</th><th class="py-2 text-center w-16">Punkty</th><th class="py-2 text-left">Dlaczego</th></tr>
+                </thead>
+                <tbody id="z-examples"></tbody>
+            </table>
+        </section>
+
+        <div id="z-sections" class="grid gap-3 md:grid-cols-2"></div>
+
+        <section id="faq" class="card card-pad scroll-mt-16">
+            <h2 class="section-title text-lg mb-3">❓ Najczęstsze pytania</h2>
+            <div id="z-faq" class="divide-y divide-line"></div>
+        </section>
+
+        <div class="flex flex-wrap justify-center gap-2 pt-2">
+            <a href="/" class="btn-ghost btn-sm">🏠 Strona główna</a>
+            <a href="/#ranking" class="btn-ghost btn-sm">📊 Ranking</a>
+            <a href="/#mecze" class="btn-ghost btn-sm">🏁 Mecze</a>
+        </div>
+        <p class="text-center"><a href="/admin" class="text-xs font-bold text-faint hover:text-muted">Panel administratora</a></p>
+    </main>
+
+    <script src="/js/shared.js?v=__V__"></script>
+    <script src="/js/rules.js?v=__V__"></script>
+    <script src="/js/zasady.js?v=__V__"></script>
+</body>
+</html>

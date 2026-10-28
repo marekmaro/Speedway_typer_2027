@@ -8,7 +8,8 @@ let seasonParam = new URLSearchParams(location.search).get('season');
 let allTimeLoaded = false;
 let deferredInstall = null;
 
-const TABS = ['mecze', 'tabela', 'ranking', 'puchar', 'wiecej'];
+const TABS = ['start', 'mecze', 'tabela', 'ranking', 'puchar', 'wiecej'];
+let ME = null;             // panel gracza, gdy telefon zna jego link (powitanie na stronie startowej)
 const esc = T.escapeHtml;
 const profileUrl = nick => `/gracz.html?nick=${encodeURIComponent(nick)}${seasonParam ? `&season=${seasonParam}` : ''}`;
 
@@ -26,7 +27,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const token = T.storedToken();
     if (token) {
         const href = `/typuj.html?id=${encodeURIComponent(token)}`;
-        ['my-panel', 'my-fab'].forEach(id => { const a = document.getElementById(id); a.href = href; a.classList.remove('hidden'); });
+        // na telefonie wystarczy pływający przycisk "Typuj", na komputerze - przycisk w nagłówku
+        const panel = document.getElementById('my-panel'), fab = document.getElementById('my-fab');
+        panel.href = fab.href = href;
+        panel.classList.add('md:inline-flex');
+        fab.classList.remove('hidden');
     }
     setupInstall();
     showTab();
@@ -38,7 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function currentTab() {
     const h = location.hash.replace('#', '');
-    return TABS.includes(h) ? h : 'mecze';
+    return TABS.includes(h) ? h : 'start';
 }
 
 function showTab() {
@@ -59,6 +64,7 @@ async function load() {
         document.getElementById('load-error').classList.add('hidden');
         renderSeasonPicker();
         renderFinale();
+        renderStart();
         renderLeagueTable();
         renderRoundNav();
         renderMatches();
@@ -67,9 +73,9 @@ async function load() {
         renderLongTerm();
         renderCup();
         renderFullSchedule();
-        renderRules();
         fillH2HSelects();
         updateCountdown();
+        loadMe();
     } catch (err) {
         const box = document.getElementById('load-error');
         box.textContent = `Nie udało się pobrać danych: ${err.message}`;
@@ -142,6 +148,95 @@ function renderFinale() {
                 ${T.helmet(p.nickname, { size: 'sm', medal: p.position })}${p.position === 2 ? '🥈' : '🥉'} ${esc(p.nickname)} · ${p.points}</a>`).join('')}</div>` : ''}
     </div>`;
     if (T.once(`finale-confetti-${f.year}`)) T.confetti();
+}
+
+/* ---------------- start (strona główna) ---------------- */
+
+/** Gracz, którego link zna ten telefon: powitanie i brakujące typy. Bez linku - zwykłe powitanie. */
+async function loadMe() {
+    const token = T.storedToken();
+    if (!token) return;
+    try {
+        ME = await T.getJson(`/api/public/player-data?token=${encodeURIComponent(token)}${seasonParam ? `&season=${seasonParam}` : ''}`);
+        renderStart();
+    } catch (e) { ME = null; }
+}
+
+function renderStart() {
+    const token = T.storedToken();
+    const lead = document.getElementById('start-lead');
+    const cta = document.getElementById('start-cta');
+    if (ME && ME.player) {
+        const now = T.now();
+        const open = ME.matches.filter(m => !m.isPostponed && !m.voidPredictions && !T.isLocked(m, ME.season.lockMinutes, now));
+        const missing = open.filter(m => !ME.predictions.some(p => p.matchId === m._id));
+        const next = missing.sort((a, b) => new Date(a.matchDate) - new Date(b.matchDate))[0];
+        const r = ME.ranking;
+        document.getElementById('h-start').textContent = `Cześć, ${ME.player.nickname}! 👋`;
+        lead.innerHTML = `${r.position ? `Jesteś <strong class="text-ink">${r.position}. z ${r.totalPlayers}</strong> (${r.points} pkt). ` : ''}`
+            + (D.season.isFinished ? 'Sezon zakończony — zobacz podium w rankingu.'
+                : missing.length ? `<strong class="text-warn">Brakuje Ci ${missing.length} ${missing.length === 1 ? 'typu' : 'typów'}</strong> — najbliższy: ${esc(T.shortName(next.homeTeam))} – ${esc(T.shortName(next.awayTeam))}, ${T.fmtDay(next.matchDate)} ${T.fmtTime(next.matchDate)}.`
+                    : open.length ? '<strong class="text-ok">Masz typy na wszystkie otwarte mecze ✓</strong>' : 'Na razie nie ma otwartych meczów.');
+        cta.innerHTML = `<a href="/typuj.html?id=${encodeURIComponent(token)}" class="btn-primary btn-sm">🏁 ${missing.length ? 'Typuj teraz' : 'Moje typy'}</a>
+            <a href="/zasady" class="btn-ghost btn-sm">📜 Zasady gry</a>
+            <a href="/gracz.html?nick=${encodeURIComponent(ME.player.nickname)}" class="btn-ghost btn-sm">📈 Mój profil</a>`;
+    } else if (!token) {
+        cta.innerHTML = `<a href="/zasady" class="btn-primary btn-sm">📜 Zasady gry</a>
+            <a href="#ranking" class="btn-ghost btn-sm">📊 Ranking</a>
+            <span class="text-xs text-muted self-center">Chcesz grać? Poproś admina o swój link.</span>`;
+    }
+    if (!D) return;
+
+    // najbliższa kolejka (albo trwająca)
+    const round = activeRound();
+    const rm = D.matches.filter(m => m.round === round).sort((a, b) => new Date(a.matchDate) - new Date(b.matchDate));
+    document.getElementById('start-round-title').textContent = `🏁 ${T.roundName(round, D.season.stageNames)}`;
+    const now = T.now();
+    document.getElementById('start-round').innerHTML = rm.length ? rm.map(m => {
+        const st = T.matchStatus(m, D.season.lockMinutes, now);
+        return `<li class="py-2.5">
+            <a href="#mecze" onclick="changeRound(${m.round})" class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 text-sm">
+                <span class="flex items-center justify-end gap-1.5 min-w-0"><span class="font-bold truncate">${esc(T.shortName(m.homeTeam))}</span>${T.logoHtml(m.homeTeam)}</span>
+                ${T.hasResult(m) ? `<span class="led-box text-sm !px-2 !py-0.5">${m.homeScore}:${m.awayScore}</span>`
+                    : `<span class="text-center"><span class="block text-xs font-black tabular-nums">${T.fmtTime(m.matchDate)}</span><span class="block text-[10px] text-muted">${T.fmtDay(m.matchDate)}</span></span>`}
+                <span class="flex items-center gap-1.5 min-w-0">${T.logoHtml(m.awayTeam)}<span class="font-bold truncate">${esc(T.shortName(m.awayTeam))}</span></span>
+            </a>
+            <div class="text-center mt-1"><span class="${st.cls} !text-[10px] !py-0.5">${esc(st.text)}</span>${m.isMatchOfTheRound ? ' <span class="kask-badge !text-[10px] !py-0.5">⭐ Kask</span>' : ''}</div>
+        </li>`;
+    }).join('') : '<li class="py-3 text-sm text-muted">Terminarz nie jest jeszcze wgrany.</li>';
+
+    // czołówka
+    const top = D.ranking.slice(0, 5);
+    document.getElementById('start-top').innerHTML = top.length ? top.map(p => `
+        <li><a href="${profileUrl(p.nickname)}" class="flex items-center gap-3 py-2">
+            <span class="rank-pos ${p.points > 0 ? (p.position === 1 ? 'top' : p.position === 2 ? 'p2' : p.position === 3 ? 'p3' : '') : ''} !w-7 !h-7 !text-xs">${p.position ?? '–'}</span>
+            ${T.helmet(p.nickname, { size: 'sm' })}
+            <span class="flex-1 min-w-0 font-bold truncate">${esc(p.nickname)}</span>
+            <span class="text-lg font-black tabular-nums">${p.points}</span>
+        </a></li>`).join('') : '<li class="py-3 text-sm text-muted">Brak graczy w tym sezonie.</li>';
+
+    // ostatnie wyniki
+    const played = D.matches.filter(T.hasResult).sort((a, b) => new Date(b.matchDate) - new Date(a.matchDate)).slice(0, 4);
+    document.getElementById('start-results').innerHTML = played.length ? played.map(m => `
+        <li class="flex items-center gap-2 py-2 text-sm">
+            <span class="text-[11px] font-bold text-muted w-8 shrink-0">R${m.round}</span>
+            <span class="flex-1 min-w-0 truncate text-right font-semibold">${esc(T.shortName(m.homeTeam))}</span>
+            <span class="led-box text-sm !px-2 !py-0.5">${m.homeScore}:${m.awayScore}</span>
+            <span class="flex-1 min-w-0 truncate font-semibold">${esc(T.shortName(m.awayTeam))}</span>
+        </li>`).join('') : '<li class="py-3 text-sm text-muted">Jeszcze nie rozegrano żadnego meczu.</li>';
+
+    // sezon w liczbach
+    const done = D.matches.filter(T.hasResult).length;
+    const exact = D.ranking.reduce((sum, p) => sum + (p.perfects || 0), 0);
+    const leader = D.ranking[0] && D.ranking[0].points > 0 ? D.ranking[0] : null;
+    const tile = (icon, value, label, color) => `<div class="kpi" style="--k: var(--${color})"><span class="kpi-icon" aria-hidden="true">${icon}</span>
+        <div class="text-xl font-black tabular-nums truncate pr-6">${value}</div><div class="text-[11px] font-semibold text-muted">${label}</div></div>`;
+    document.getElementById('start-stats').innerHTML = [
+        tile('👥', D.ranking.length, 'typerów', 'gate-blue'),
+        tile('🏁', `${done}/${D.matches.length}`, 'rozegranych meczów', 'ok'),
+        tile('🎯', exact, 'dokładnych trafień', 'brand'),
+        tile('👑', leader ? esc(leader.nickname) : '—', leader ? `lider · ${leader.points} pkt` : 'lider', 'gold')
+    ].join('');
 }
 
 /* ---------------- tabela ligowa ---------------- */
@@ -488,82 +583,6 @@ function renderFullSchedule() {
             </li>`).join('');
         return `<div><h4 class="eyebrow mb-1">${esc(T.roundName(r, D.season.stageNames))}</h4><ul class="divide-y divide-line">${rows}</ul></div>`;
     }).join('');
-}
-
-/**
- * Regulamin generowany z ustawień sezonu. Każde zdanie ma pokrycie w logice serwera
- * (services/scoring.js, routes/publicRoutes.js), w testach (test/scenarios.test.js)
- * i w symulacji całego sezonu (npm run symulacja).
- */
-function rulesSections() {
-    const s = D.season.scoring;
-    const lock = T.lockLabel(D.season.lockMinutes);
-    const remind = T.lockLabel(D.season.reminderMinutes || 120);
-    const max = (s.exact + s.motrBonus) * s.jokerMultiplier;
-    const tol = Number(s.diffTolerance) || 0;
-    const b = t => `<strong class="text-ink">${t}</strong>`;
-    // przykład typu za "zwycięzca + różnica": przy tolerancji - typ z sumą 90, którego różnica mieści się w ±tol
-    const near = tol >= 2 ? `${46 + Math.floor(tol / 2)}:${44 - Math.floor(tol / 2)}` : '47:45';
-    return [
-        { icon: '🕒', title: 'Typowanie', items: [
-            `Typujesz przez swój prywatny link (najlepiej dodany do ekranu głównego) — najpóźniej ${b(`${lock} przed pierwszym biegiem`)} meczu.`,
-            'Blokadę sprawdza serwer, według czasu serwera — zły zegarek w telefonie nic nie zmienia.',
-            'Typy innych są zakryte do blokady. Wcześniej widać tylko, kto już wytypował.',
-            'Zapis jest automatyczny. Do blokady typ możesz zmieniać, a wyczyszczenie obu pól usuwa typ.',
-            'Typ to dwie liczby 0–75. Brak typu = 0 pkt.',
-            `Po włączeniu powiadomień dostaniesz przypomnienie ${remind} przed blokadą, jeśli nie masz typu.`
-        ] },
-        { icon: '🎯', title: 'Punkty za mecz', scoring: true, items: [
-            `Przykład przy wyniku 46:44: typ 46:44 → ${b(s.exact)} · ${near} → ${b(s.diff)} · 54:36 → ${b(s.winner)} · 44:46 → ${b(0)}.`,
-            tol ? `„Różnica” liczy się z tolerancją ${b(`±${tol} pkt`)}: różnica Twojego typu może się różnić od różnicy meczu najwyżej o ${tol}.` : '',
-            `Remis: trafiony remis z innym wynikiem (np. 45:45 przy 44:44) = ${b(s.diff)} pkt. Typ na remis, gdy ktoś wygrał = 0 pkt.`
-        ] },
-        { icon: '⭐', title: 'Premie', items: [
-            `${b(`Joker x${s.jokerMultiplier}`)} — raz w sezonie mnożysz dorobek z jednego meczu (razem z premią Złotego Kasku). Wymaga wpisanego typu. Można go przenosić, dopóki mecz z Jokerem nie jest zablokowany.`,
-            `${b('Złoty Kask')} — wyróżniony mecz kolejki: trafienie za ${s.exact} lub ${s.diff} pkt daje ${b(`+${s.motrBonus}`)}.`,
-            `Maksimum z jednego meczu: ${b(`${max} pkt`)}.`
-        ] },
-        { icon: '🔮', title: `Typy sezonowe (do ${s.longTermEach * 3} pkt)`, items: [
-            `Mistrz Polski, brązowy medalista i spadkowicz — po ${b(`+${s.longTermEach}`)} pkt za każde trafienie.`,
-            'Trzy różne drużyny. Typujesz do blokady pierwszego meczu sezonu — potem typy wszystkich stają się widoczne.',
-            'Rozliczenie po zakończeniu sezonu, według ostatecznych wyników ligi.'
-        ] },
-        { icon: '📊', title: 'Ranking', items: [
-            'Liczą się punkty za mecze plus typy sezonowe.',
-            `Przy równej liczbie punktów wyżej jest ten, kto ma ${b('więcej dokładnych trafień')}, a potem ${b('więcej trafień „zwycięzca + różnica”')}. Pełny remis = ex aequo.`,
-            'Mecze play-off (np. półfinały, finał) typujesz i punktujesz jak każde inne.',
-            'Zwycięzca kolejki: najwięcej punktów w kolejce (przy remisie — kilku zwycięzców). Ostateczny po rozliczeniu całej kolejki.'
-        ] },
-        { icon: '🏆', title: 'Puchar Typerów', items: [
-            'Pary według rankingu: 1. z ostatnim, 2. z przedostatnim…',
-            'Wygrywa ten, kto w wyznaczonej kolejce zdobędzie więcej punktów (z Jokerem i Kaskiem). Rozstrzygnięcie po rozliczeniu całej kolejki.',
-            `Remis: więcej dokładnych trafień w tej kolejce, potem ${b('mniejsza łączna pomyłka')} (suma różnic między typami a wynikami, mecz bez typu = 90), a gdy i to równe — ${b('wyżej rozstawiony')}.`
-        ] },
-        { icon: '🌧️', title: 'Sytuacje żużlowe', items: [
-            `Mecz przełożony ${b('przed')} blokadą — typy zostają i możesz je zmieniać do nowej blokady (także gdy nowy termin jeszcze nie jest znany).`,
-            `Mecz przełożony ${b('po')} blokadzie (np. deszcz w dniu meczu) — typy były już jawne, więc zostają zamrożone do nowego terminu.`,
-            'Mecz przerwany po co najmniej 8 biegach — liczy się wynik zaliczony przez ligę. Przerwany wcześniej — traktujemy jak przełożony.',
-            'Walkower albo mecz odwołany — typy anulowane (nikt nie dostaje punktów), a Joker wraca do gracza. Dotyczy też walkowera przyznanego później, np. po proteście.',
-            'Tabela ligi: 2 pkt za zwycięstwo, 1 za remis, +1 za wygrany dwumecz (suma małych punktów z obu meczów). Play-off nie wlicza się do tabeli.'
-        ] },
-        { icon: '👑', title: 'Mistrz Typera', items: [
-            `Zwycięzca sezonu zostaje ${b('Mistrzem Typera')}: trafia do galerii mistrzów, dostaje dyplom i niespodziankę od organizatora 🎁 (zdrapka w jego panelu). Podium dostaje medale i dyplomy.`,
-            'Wyniki zatwierdza admin (także te pobrane automatycznie) — jego decyzja jest ostateczna. Mistrza ogłaszamy po zamknięciu sezonu.'
-        ] }
-    ];
-}
-
-function renderRules() {
-    const s = D.season.scoring;
-    const tol = Number(s.diffTolerance) || 0;
-    const tiles = [[s.exact, 'dokładny wynik'], [s.diff, `zwycięzca + różnica${tol ? ` ±${tol}` : ''}`], [s.winner, 'zwycięzca'], [0, 'pudło']];
-    document.getElementById('rules-content').innerHTML = rulesSections().map(sec => `
-    <div class="rule-block ${sec.scoring ? 'md:col-span-2' : ''}">
-        <h4 class="rule-title"><span aria-hidden="true">${sec.icon}</span> ${sec.title}</h4>
-        ${sec.scoring ? `<div class="grid grid-cols-4 gap-2 text-center mb-3">${tiles.map(([v, t]) => `
-            <div class="score-tile"><div class="led">${v}</div><div class="text-[11px] text-muted leading-tight mt-1">${t}</div></div>`).join('')}</div>` : ''}
-        <ul class="rule-list">${sec.items.filter(Boolean).map(i => `<li>${i}</li>`).join('')}</ul>
-    </div>`).join('');
 }
 
 /* ---------------- instalacja PWA ---------------- */

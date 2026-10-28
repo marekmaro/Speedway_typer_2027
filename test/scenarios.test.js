@@ -812,7 +812,7 @@ const fresh = id => db.Match.findById(String(id));
         const sw = await get('/sw.js');
         assert.ok(/typer-[0-9a-f]{10}/.test(sw.text));
         assert.strictEqual(sw.headers.get('cache-control'), 'no-cache');
-        for (const page of ['/typuj', '/typuj.html?id=x', '/gracz.html', '/admin']) {
+        for (const page of ['/typuj', '/typuj.html?id=x', '/gracz.html', '/admin', '/zasady', '/zasady.html', '/regulamin']) {
             const r = await get(page);
             assert.strictEqual(r.status, 200, page);
             assert.ok(!r.text.includes('__V__'), page);
