@@ -206,9 +206,10 @@ router.post('/season/settings', wrap(async (req, res) => {
     let recalculated = false;
     if (scoring && typeof scoring === 'object') {
         const next = {};
-        ['exact', 'diff', 'winner', 'motrBonus', 'jokerMultiplier', 'longTermEach'].forEach(k => {
-            if (scoring[k] !== undefined && scoring[k] !== '' && !isNaN(Number(scoring[k]))) next[k] = Number(scoring[k]);
+        ['exact', 'diff', 'winner', 'motrBonus', 'jokerMultiplier', 'longTermEach', 'diffTolerance'].forEach(k => {
+            if (scoring[k] !== undefined && scoring[k] !== '' && !isNaN(Number(scoring[k]))) next[k] = Math.max(0, Number(scoring[k]));
         });
+        if (next.diffTolerance !== undefined) next.diffTolerance = Math.min(20, Math.round(next.diffTolerance));
         season.scoring = { ...S.scoringOf(season), ...next };
         recalculated = true;
     }

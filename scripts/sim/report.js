@@ -135,6 +135,17 @@ function buildReport({ season, mc, seed, seasonMs, mcMs }) {
         out(`- Bez typów sezonowych mistrz byłby inny w ${pct(mc.ltChangedPct)} sezonów; przy 5 pkt zamiast 10 — w ${pct(mc.lt5ChangedPct)}.`);
         out(`- Bez Jokera — inny mistrz w ${pct(mc.jokerChangedPct)} sezonów; bez Złotego Kasku — w ${pct(mc.kaskChangedPct)}.`);
         out('');
+        out('**Kategoria „zwycięzca + różnica” (3 pkt) w żużlu prawie nie istnieje**');
+        out('');
+        const o = mc.outcomePct, o4 = mc.outcomeTol4Pct;
+        out(`W piłce nożnej „trafiona różnica” zdarza się często, ale w żużlu typ i wynik prawie zawsze mają sumę 90 — a przy tej samej sumie ta sama różnica oznacza ten sam wynik. ` +
+            `Dlatego przy obecnych zasadach typy rozkładają się tak: dokładny ${pct(o.exact)}, **różnica ${pct(o.diff)}**, zwycięzca ${pct(o.winner)}, pudło ${pct(o.miss)}. ` +
+            `3 pkt wpadają tylko przy meczach z upadkami (suma 89) albo typie z inną sumą niż 90.`);
+        out('');
+        out(`Nowe ustawienie sezonu **„Tolerancja różnicy”** (Sezon → Zasady, domyślnie 0 — czyli bez zmian) pozwala to naprawić. Przy **±4 pkt** (różnica typu najwyżej o 4 od różnicy meczu, czyli wynik gospodarzy ±2): ` +
+            `dokładny ${pct(o4.exact)}, **różnica ${pct(o4.diff)}**, zwycięzca ${pct(o4.winner)}, pudło ${pct(o4.miss)}. Mistrz zmieniłby się w ${pct(mc.tol4ChangedPct)} sezonów, ` +
+            `a tytuły Eksperta: ${pct(mc.per.find(p => p.nick === 'Ekspert').titlePct)} → ${pct(mc.per.find(p => p.nick === 'Ekspert').titleTol4Pct)} — „bycie blisko” zaczyna się opłacać, umiejętność waży trochę więcej.`);
+        out('');
         out('**Wnioski**');
         out('');
         const P = n => mc.per.find(p => p.nick === n);
@@ -147,6 +158,7 @@ function buildReport({ season, mc, seed, seasonMs, mcMs }) {
         out(`- **Regularność jest ważniejsza niż geniusz**: Spóźnialski typuje prawie jak Ekspert (${num(late.perMatch, 2)} pkt na typ), ale traci co trzeci typ przez blokadę — średnio ${num(late.avgPoints, 0)} pkt. Zapominalski (${num(forget.perMatch, 2)} pkt na typ, ale co trzeci mecz bez typu) — ${num(forget.avgPoints, 0)} pkt. Przypomnienia push mają sens.`);
         out(`- **Typy sezonowe (do 30 pkt) zmieniają mistrza w ${pct(mc.ltChangedPct)} sezonów.** To dużo — sezon wygrywa się w dużej mierze w marcu, przy wyborze mistrza, brązu i spadkowicza. Jeśli grupa uważa, że to za dużo: Sezon → Zasady → „Typ sezonowy (każdy)” = 5 pkt zmniejsza ich wpływ do ${pct(mc.lt5ChangedPct)} (zmiana przelicza sezon).`);
         out(`- **Joker i Złoty Kask są przyprawą, nie loterią**: zmieniają mistrza w ${pct(mc.jokerChangedPct)} i ${pct(mc.kaskChangedPct)} sezonów.`);
+        out(`- **Rekomendacja do decyzji grupy: tolerancja różnicy ±4.** Bez niej środkowy próg punktacji (3 pkt) jest martwy. To jedno pole w panelu, punkty sezonu przeliczą się same.`);
         out(`- **Remisy w rankingu**: regulamin rozstrzyga ${pct(mc.decidedByExactPct + mc.decidedByDiffPct)} sezonów (dokładne trafienia, różnica), ex aequo zostaje w ${pct(mc.coChampionsPct)} — wtedy jest dwóch mistrzów i obaj dostają niespodziankę.`);
         out(`- **Puchar Typerów**: jedna kolejka to tylko 4 mecze, więc remisy są częste. Pierwsza wersja dogrywki (dokładne → rozstawienie) oddawała co trzeci pojedynek rozstawieniu; po dodaniu „mniejszej łącznej pomyłki” rozstawienie decyduje w ${pct(mc.cupPct.seed)} pojedynków — prawie tylko wtedy, gdy obaj typowali identycznie.`);
         out('');

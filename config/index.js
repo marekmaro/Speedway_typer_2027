@@ -7,7 +7,11 @@ const DEFAULT_SCORING = {
     winner: 2,         // dobry zwycięzca
     motrBonus: 1,      // Złoty Kask (mecz kolejki) - dodatkowy punkt przy 5 lub 3 pkt
     jokerMultiplier: 2,// Joker mnoży cały dorobek z meczu
-    longTermEach: 10   // za każdy trafiony typ długoterminowy
+    longTermEach: 10,  // za każdy trafiony typ długoterminowy
+    // Tolerancja różnicy (pkt): 0 = różnica musi się zgadzać co do punktu. W żużlu suma to prawie zawsze 90,
+    // więc wtedy "trafiona różnica" = dokładny wynik i 3 pkt prawie nie występują (symulacja: 0% typów).
+    // Np. 4 = różnica typu w granicach ±4 od różnicy meczu (wynik gospodarzy ±2) daje 3 pkt (ok. 20% typów).
+    diffTolerance: 0
 };
 
 const num = (v, def) => (v === undefined || v === '' || isNaN(Number(v)) ? def : Number(v));

@@ -8,7 +8,8 @@ const { roundRobin } = require('../../services/schedule');
 const { rngOf, TEAMS, simulateMatch, expectedTable } = require('./engine');
 const { PERSONAS, predictFor, jokerPick, longTermPick } = require('./personas');
 
-const SC = { exact: 5, diff: 3, winner: 2, motrBonus: 1, jokerMultiplier: 2, longTermEach: 10 };
+const SC = { exact: 5, diff: 3, winner: 2, motrBonus: 1, jokerMultiplier: 2, longTermEach: 10, diffTolerance: 0 };
+const TOL4 = { ...SC, diffTolerance: 4 };
 
 function runMonteCarlo({ runs = 2000, seed = 2027 } = {}) {
     const E = expectedTable(300, seed + 1);
@@ -16,12 +17,12 @@ function runMonteCarlo({ runs = 2000, seed = 2027 } = {}) {
     const nicks = PERSONAS.map(p => p.nick);
     const acc = Object.fromEntries(PERSONAS.map(p => [p.nick, {
         titles: 0, shared: 0, points: 0, pos: 0, podium: 0, exact: 0, diff: 0, winner: 0, miss: 0, typed: 0,
-        joker: 0, kask: 0, lt: 0, cupWins: 0, beatExpert: 0
+        joker: 0, kask: 0, lt: 0, cupWins: 0, beatExpert: 0, titlesTol4: 0
     }]));
     const agg = {
         runs, topTie: 0, decidedByExact: 0, decidedByDiff: 0, coChampions: 0, ltChanged: 0, lt5Changed: 0, jokerChanged: 0,
         kaskChanged: 0, roundTies: 0, rounds: 0, cup: { points: 0, exact: 0, error: 0, seed: 0 }, avgWinner: 0, avgMargin: 0,
-        expertTop3: 0, randomLast: 0
+        expertTop3: 0, randomLast: 0, tol4Changed: 0, outcomes: {}, outcomesTol4: {}
     };
     const first = roundRobin(TEAMS);
     const regular = [...first, ...first.map(r => r.map(([h, a]) => [a, h]))];
@@ -76,7 +77,9 @@ function runMonteCarlo({ runs = 2000, seed = 2027 } = {}) {
             return { ...p, pointsEarned: S.calculatePoints(p.homePred, p.awayPred, m.homeScore, m.awayScore, p.usedJoker, m.isMatchOfTheRound, SC),
                 outcome: S.outcomeOf(p.homePred, p.awayPred, m.homeScore, m.awayScore),
                 noJoker: S.calculatePoints(p.homePred, p.awayPred, m.homeScore, m.awayScore, false, m.isMatchOfTheRound, SC),
-                noKask: S.calculatePoints(p.homePred, p.awayPred, m.homeScore, m.awayScore, p.usedJoker, false, SC) };
+                noKask: S.calculatePoints(p.homePred, p.awayPred, m.homeScore, m.awayScore, p.usedJoker, false, SC),
+                tol4: S.calculatePoints(p.homePred, p.awayPred, m.homeScore, m.awayScore, p.usedJoker, m.isMatchOfTheRound, TOL4),
+                tol4Outcome: S.outcomeOf(p.homePred, p.awayPred, m.homeScore, m.awayScore, 4) };
         });
         const longTerms = pr.map(p => ({ nickname: p.nick, ...(longTermPick(p.kind, TEAMS, p.rng) || {}) })).filter(l => l.champion)
             .map(l => ({ ...l, pointsEarned: ['champion', 'bronze', 'relegation'].filter(k => l[k] === results[k]).length * SC.longTermEach }));
@@ -105,6 +108,10 @@ function runMonteCarlo({ runs = 2000, seed = 2027 } = {}) {
         if (rankBy(s => s.matchPoints + s.longTermPoints / 2) !== base) agg.lt5Changed++;
         if (rankBy(s => sumWhere(s.nickname, 'noJoker') + s.longTermPoints) !== base) agg.jokerChanged++;
         if (rankBy(s => sumWhere(s.nickname, 'noKask') + s.longTermPoints) !== base) agg.kaskChanged++;
+        const t4 = rankBy(s => sumWhere(s.nickname, 'tol4') + s.longTermPoints);
+        if (t4 !== base) agg.tol4Changed++;
+        t4.split(',').forEach(n => { acc[n].titlesTol4 += 1 / t4.split(',').length; });
+        scored.forEach(p => { agg.outcomes[p.outcome] = (agg.outcomes[p.outcome] || 0) + 1; agg.outcomesTol4[p.tol4Outcome] = (agg.outcomesTol4[p.tol4Outcome] || 0) + 1; });
 
         for (const s of stats) {
             const x = acc[s.nickname];
@@ -146,9 +153,11 @@ function runMonteCarlo({ runs = 2000, seed = 2027 } = {}) {
             titlePct: (x.titles / runs) * 100, podiumPct: (x.podium / runs) * 100, cupPct: (x.cupWins / runs) * 100,
             avgPoints: x.points / runs, avgPos: x.pos / runs, avgExact: x.exact / runs,
             hitRate: x.typed ? ((x.typed - x.miss) / x.typed) * 100 : 0, perMatch: x.typed ? (x.points - x.lt) / x.typed : 0,
-            avgJoker: x.joker / runs, avgKask: x.kask / runs, avgLt: x.lt / runs, beatExpertPct: n === 'Ekspert' ? null : (x.beatExpert / runs) * 100
+            avgJoker: x.joker / runs, avgKask: x.kask / runs, avgLt: x.lt / runs, beatExpertPct: n === 'Ekspert' ? null : (x.beatExpert / runs) * 100,
+            titleTol4Pct: (x.titlesTol4 / runs) * 100
         };
     }).sort((p, q) => q.titlePct - p.titlePct || q.avgPoints - p.avgPoints);
+    const share = o => { const t = Object.values(o).reduce((a, b) => a + b, 0) || 1; return Object.fromEntries(['exact', 'diff', 'winner', 'miss'].map(k => [k, ((o[k] || 0) / t) * 100])); };
     const cupTotal = agg.cup.points + agg.cup.exact + agg.cup.error + agg.cup.seed;
     return {
         runs, per,
@@ -159,7 +168,9 @@ function runMonteCarlo({ runs = 2000, seed = 2027 } = {}) {
         roundTiePct: agg.rounds ? (agg.roundTies / agg.rounds) * 100 : 0,
         cupPct: { points: (agg.cup.points / cupTotal) * 100, exact: (agg.cup.exact / cupTotal) * 100, error: (agg.cup.error / cupTotal) * 100, seed: (agg.cup.seed / cupTotal) * 100 },
         avgWinner: agg.avgWinner / runs, avgMargin: agg.avgMargin / runs,
-        expertTop3Pct: (agg.expertTop3 / runs) * 100, randomLastPct: (agg.randomLast / runs) * 100
+        expertTop3Pct: (agg.expertTop3 / runs) * 100, randomLastPct: (agg.randomLast / runs) * 100,
+        tol4ChangedPct: (agg.tol4Changed / runs) * 100,
+        outcomePct: share(agg.outcomes), outcomeTol4Pct: share(agg.outcomesTol4)
     };
 }
 

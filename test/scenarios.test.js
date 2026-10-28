@@ -1049,6 +1049,20 @@ const fresh = id => db.Match.findById(String(id));
         assert.deepStrictEqual([prof.medal, prof.roundWins], [1, [2]]);
     });
 
+    await test('K9 tolerancja różnicy w ustawieniach sezonu: przeliczenie typów i rankingu, wartości ujemne odrzucone', async () => {
+        const before = (await get('/api/public/data?season=2039')).body.ranking.find(r => r.nickname === 'Bob');
+        assert.deepStrictEqual([before.points, before.diffs], [5, 1], 'Bob: 47:45 przy 46:44 to "różnica" (3), 47:43 przy 50:40 - tylko zwycięzca (2)');
+        await admin('/season/settings', { season: 2039, scoring: { diffTolerance: 6 } });
+        cache.invalidate();
+        const after = (await get('/api/public/data?season=2039')).body;
+        const bob = after.ranking.find(r => r.nickname === 'Bob');
+        assert.strictEqual(after.season.scoring.diffTolerance, 6);
+        assert.deepStrictEqual([bob.points, bob.diffs], [3 + 3, 2], 'z tolerancją ±6: 47:43 przy 50:40 (4 vs 10) to też 3 pkt');
+        await admin('/season/settings', { season: 2039, scoring: { diffTolerance: -3 } });
+        const s39 = (await adminGet('/seasons')).body.find(x => x.year === 2039);
+        assert.strictEqual(s39.scoring.diffTolerance, 0, 'ujemna tolerancja = 0');
+    });
+
     server.close();
     console.log(`\n${passed} scenariuszy przeszło${failed ? `, ${failed} NIE przeszło: ${failures.join(' | ')}` : ''}.\n`);
     process.exit(process.exitCode || 0);

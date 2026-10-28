@@ -408,7 +408,7 @@ router.get('/profile', rateLimit({ key: 'stats', max: 120 }), wrap(async (req, r
                     voided: !!m.voidPredictions, isMatchOfTheRound: !!m.isMatchOfTheRound,
                     homePred: p.homePred, awayPred: p.awayPred, usedJoker: !!p.usedJoker,
                     pointsEarned: p.pointsEarned ?? null,
-                    outcome: S.isSettled(m) ? (p.outcome || S.outcomeOf(p.homePred, p.awayPred, m.homeScore, m.awayScore)) : null
+                    outcome: S.isSettled(m) ? (p.outcome || S.outcomeOf(p.homePred, p.awayPred, m.homeScore, m.awayScore, S.scoringOf(season).diffTolerance)) : null
                 };
             })
             .sort((a, b) => new Date(b.matchDate) - new Date(a.matchDate));

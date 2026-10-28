@@ -13,4 +13,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # cały sezon przez API z kontrolą niezmienników (kod wyjścia 1 = niezgodność); raport do pobrania
+      - run: npm run symulacja -- --quiet --mc 300 --report SYMULACJA-ci.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: raport-symulacji
+          path: SYMULACJA-ci.md
       - run: npm run build:css

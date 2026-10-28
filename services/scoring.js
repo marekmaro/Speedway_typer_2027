@@ -64,26 +64,29 @@ function isSettled(match) {
     return !!match && match.homeScore !== null && match.homeScore !== undefined && !match.voidPredictions;
 }
 
-/** Rodzaj trafienia, niezależny od punktacji sezonu. */
-function outcomeOf(homePred, awayPred, homeScore, awayScore) {
+/**
+ * Rodzaj trafienia. tolerance (punktacja sezonu, diffTolerance) - o ile różnica typu może się różnić
+ * od różnicy meczu, żeby wciąż liczyć się jako "zwycięzca + różnica" (0 = co do punktu).
+ */
+function outcomeOf(homePred, awayPred, homeScore, awayScore, tolerance = 0) {
     if ([homePred, awayPred, homeScore, awayScore].some(v => v === null || v === undefined)) return null;
     if (homePred === homeScore && awayPred === awayScore) return 'exact';
     const predDiff = homePred - awayPred, actDiff = homeScore - awayScore;
     if (Math.sign(predDiff) !== Math.sign(actDiff)) return 'miss';
-    return Math.abs(predDiff) === Math.abs(actDiff) ? 'diff' : 'winner';
+    return Math.abs(Math.abs(predDiff) - Math.abs(actDiff)) <= (Number(tolerance) || 0) ? 'diff' : 'winner';
 }
 
 /**
  * Punktacja jednego typu.
  * 5  - dokładny wynik
- * 3  - dobry zwycięzca + dokładna różnica punktowa
+ * 3  - dobry zwycięzca + różnica punktowa (dokładna albo w granicach tolerancji sezonu)
  * 2  - dobry zwycięzca
  * 0  - pudło
  * +1 - Złoty Kask (tylko przy 5 lub 3 pkt)
  * x2 - Joker (mnoży dorobek razem z bonusem, czyli max 12 pkt)
  */
 function calculatePoints(homePred, awayPred, homeScore, awayScore, usedJoker, isMotr, scoring = DEFAULT_SCORING) {
-    const outcome = outcomeOf(homePred, awayPred, homeScore, awayScore);
+    const outcome = outcomeOf(homePred, awayPred, homeScore, awayScore, scoring.diffTolerance);
     if (outcome === null) return null;
 
     let points = { exact: scoring.exact, diff: scoring.diff, winner: scoring.winner, miss: 0 }[outcome];
@@ -97,7 +100,7 @@ function settle(pred, match, scoring) {
     if (!isSettled(match)) return { pointsEarned: null, outcome: null };
     return {
         pointsEarned: calculatePoints(pred.homePred, pred.awayPred, match.homeScore, match.awayScore, pred.usedJoker, match.isMatchOfTheRound, scoring),
-        outcome: outcomeOf(pred.homePred, pred.awayPred, match.homeScore, match.awayScore)
+        outcome: outcomeOf(pred.homePred, pred.awayPred, match.homeScore, match.awayScore, (scoring || DEFAULT_SCORING).diffTolerance)
     };
 }
 
@@ -171,9 +174,9 @@ function indexMatches(matches) {
     return byId;
 }
 
-/** Rodzaj trafienia: z pola outcome (v3) albo wyliczony z wyniku (stare dane). */
-function outcomeFor(pred, match) {
-    return pred.outcome || outcomeOf(pred.homePred, pred.awayPred, match.homeScore, match.awayScore);
+/** Rodzaj trafienia: z pola outcome (v3, liczone przy rozliczeniu z punktacją sezonu) albo wyliczony z wyniku (stare dane). */
+function outcomeFor(pred, match, tolerance = 0) {
+    return pred.outcome || outcomeOf(pred.homePred, pred.awayPred, match.homeScore, match.awayScore, tolerance);
 }
 
 /**

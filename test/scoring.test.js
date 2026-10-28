@@ -281,6 +281,20 @@ test('krótkie nazwy drużyn: serwer (push) i przeglądarka dają to samo', () =
     assert.strictEqual(names.shortName('PRES Grupa Deweloperska Toruń'), 'Toruń');
 });
 
+test('tolerancja różnicy: 0 = co do punktu (domyślnie), 4 = różnica typu ±4 od różnicy meczu', () => {
+    assert.strictEqual(S.outcomeOf(48, 42, 46, 44), 'winner', 'bez tolerancji 6 != 2');
+    assert.strictEqual(S.outcomeOf(48, 42, 46, 44, 4), 'diff');
+    assert.strictEqual(S.outcomeOf(49, 41, 46, 44, 4), 'winner', '8 - 2 = 6 > 4');
+    assert.strictEqual(S.outcomeOf(44, 46, 46, 44, 4), 'miss', 'tolerancja nie ratuje złego zwycięzcy');
+    assert.strictEqual(S.outcomeOf(45, 45, 46, 44, 4), 'miss', 'remis przy zwycięstwie to pudło');
+    assert.strictEqual(S.outcomeOf(46, 44, 46, 44, 4), 'exact');
+    const tsc = { ...sc, diffTolerance: 4 };
+    assert.strictEqual(S.calculatePoints(48, 42, 46, 44, false, true, tsc), 4, '3 + Kask');
+    assert.strictEqual(S.calculatePoints(48, 42, 46, 44, true, false, tsc), 6, 'Joker');
+    assert.deepStrictEqual(S.settle({ homePred: 48, awayPred: 42 }, { homeScore: 46, awayScore: 44 }, tsc), { pointsEarned: 3, outcome: 'diff' });
+    assert.strictEqual(S.scoringOf(null).diffTolerance, 0, 'domyślnie bez tolerancji - zasady bez zmian');
+});
+
 console.log('\nScraper (parsowanie bez sieci):');
 const T8 = ['Orlen Oil Motor Lublin', 'Betard Sparta Wrocław', 'PRES Grupa Deweloperska Toruń', 'Gezet Stal Gorzów',
     'Stal Rzeszów', 'Fogo Unia Leszno', 'Unia Tarnów', 'Bayersystem GKM Grudziądz'];

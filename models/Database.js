@@ -19,7 +19,8 @@ const seasonSchema = new mongoose.Schema({
         winner: { type: Number, default: DEFAULT_SCORING.winner },
         motrBonus: { type: Number, default: DEFAULT_SCORING.motrBonus },
         jokerMultiplier: { type: Number, default: DEFAULT_SCORING.jokerMultiplier },
-        longTermEach: { type: Number, default: DEFAULT_SCORING.longTermEach }
+        longTermEach: { type: Number, default: DEFAULT_SCORING.longTermEach },
+        diffTolerance: { type: Number, default: DEFAULT_SCORING.diffTolerance }
     },
     teams: { type: [String], default: [] },
     stageNames: { type: Map, of: String, default: {} },

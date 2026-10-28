@@ -1,6 +1,6 @@
 # Symulacja ligi — Żużlowy Typer
 
-Wygenerowano poleceniem `npm run symulacja` (seed 2027). Cały sezon trwał w symulacji 7.4 s, Monte Carlo 2000 sezonów — 9.3 s.
+Wygenerowano poleceniem `npm run symulacja` (seed 2027). Cały sezon trwał w symulacji 6.7 s, Monte Carlo 2000 sezonów — 8.2 s.
 
 **Jak to działa.** Symulacja uruchamia prawdziwą aplikację (`server.js`, wszystkie trasy API) na bazie w pamięci i przesuwa zegar serwera. Typerzy wysyłają typy tak jak telefon (`/api/public/submit-all`), admin zatwierdza wyniki ze scrapera, przekłada mecze po deszczu, wpisuje walkowery, rozstawia Puchar Typerów, dodaje play-off i zamyka sezon. Wyniki meczów powstają bieg po biegu (15 biegów, 3-2-1-0, upadki i defekty), a scraper czyta je z dwóch fikcyjnych portali (tabela całego sezonu i lista ostatnich wyników — z literówkami, opóźnieniami i awarią). Po każdej kolejce symulacja **niezależnie** przelicza punkty, ranking, tabelę i puchar i porównuje je z tym, co pokazuje API.
 
@@ -186,6 +186,12 @@ Te same style typowania, te same zasady punktacji co w aplikacji (5/3/2/0, Złot
 - Bez typów sezonowych mistrz byłby inny w 39% sezonów; przy 5 pkt zamiast 10 — w 17%.
 - Bez Jokera — inny mistrz w 4.3% sezonów; bez Złotego Kasku — w 6.6%.
 
+**Kategoria „zwycięzca + różnica” (3 pkt) w żużlu prawie nie istnieje**
+
+W piłce nożnej „trafiona różnica” zdarza się często, ale w żużlu typ i wynik prawie zawsze mają sumę 90 — a przy tej samej sumie ta sama różnica oznacza ten sam wynik. Dlatego przy obecnych zasadach typy rozkładają się tak: dokładny 6.1%, **różnica 0.0%**, zwycięzca 60%, pudło 34%. 3 pkt wpadają tylko przy meczach z upadkami (suma 89) albo typie z inną sumą niż 90.
+
+Nowe ustawienie sezonu **„Tolerancja różnicy”** (Sezon → Zasady, domyślnie 0 — czyli bez zmian) pozwala to naprawić. Przy **±4 pkt** (różnica typu najwyżej o 4 od różnicy meczu, czyli wynik gospodarzy ±2): dokładny 6.1%, **różnica 20%**, zwycięzca 41%, pudło 34%. Mistrz zmieniłby się w 24% sezonów, a tytuły Eksperta: 29% → 34% — „bycie blisko” zaczyna się opłacać, umiejętność waży trochę więcej.
+
 **Wnioski**
 
 - **Wygrywa umiejętność.** Trzej typerzy „z głową” (Ekspert, Poprawiacz, Statystyk) zdobywają razem 69% tytułów; najczęściej Ekspert (29%), Ekspert jest na podium w 76% sezonów. Losowy typer: 0.0% tytułów, średnio 71 pkt — przypadek nie wygrywa sezonu.
@@ -195,6 +201,7 @@ Te same style typowania, te same zasady punktacji co w aplikacji (5/3/2/0, Złot
 - **Regularność jest ważniejsza niż geniusz**: Spóźnialski typuje prawie jak Ekspert (1,70 pkt na typ), ale traci co trzeci typ przez blokadę — średnio 89 pkt. Zapominalski (1,72 pkt na typ, ale co trzeci mecz bez typu) — 72 pkt. Przypomnienia push mają sens.
 - **Typy sezonowe (do 30 pkt) zmieniają mistrza w 39% sezonów.** To dużo — sezon wygrywa się w dużej mierze w marcu, przy wyborze mistrza, brązu i spadkowicza. Jeśli grupa uważa, że to za dużo: Sezon → Zasady → „Typ sezonowy (każdy)” = 5 pkt zmniejsza ich wpływ do 17% (zmiana przelicza sezon).
 - **Joker i Złoty Kask są przyprawą, nie loterią**: zmieniają mistrza w 4.3% i 6.6% sezonów.
+- **Rekomendacja do decyzji grupy: tolerancja różnicy ±4.** Bez niej środkowy próg punktacji (3 pkt) jest martwy. To jedno pole w panelu, punkty sezonu przeliczą się same.
 - **Remisy w rankingu**: regulamin rozstrzyga 4.2% sezonów (dokładne trafienia, różnica), ex aequo zostaje w 1.2% — wtedy jest dwóch mistrzów i obaj dostają niespodziankę.
 - **Puchar Typerów**: jedna kolejka to tylko 4 mecze, więc remisy są częste. Pierwsza wersja dogrywki (dokładne → rozstawienie) oddawała co trzeci pojedynek rozstawieniu; po dodaniu „mniejszej łącznej pomyłki” rozstawienie decyduje w 5.0% pojedynków — prawie tylko wtedy, gdy obaj typowali identycznie.
 

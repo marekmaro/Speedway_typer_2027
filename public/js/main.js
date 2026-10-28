@@ -395,7 +395,10 @@ function rulesSections() {
     const lock = T.lockLabel(D.season.lockMinutes);
     const remind = T.lockLabel(D.season.reminderMinutes || 120);
     const max = (s.exact + s.motrBonus) * s.jokerMultiplier;
+    const tol = Number(s.diffTolerance) || 0;
     const b = t => `<strong class="text-ink">${t}</strong>`;
+    // przykład typu za "zwycięzca + różnica": przy tolerancji - typ z sumą 90, którego różnica mieści się w ±tol
+    const near = tol >= 2 ? `${46 + Math.floor(tol / 2)}:${44 - Math.floor(tol / 2)}` : '47:45';
     return [
         { icon: '🕒', title: 'Typowanie', items: [
             `Typujesz przez swój prywatny link (najlepiej dodany do ekranu głównego) — najpóźniej ${b(`${lock} przed pierwszym biegiem`)} meczu.`,
@@ -406,7 +409,8 @@ function rulesSections() {
             `Po włączeniu powiadomień dostaniesz przypomnienie ${remind} przed blokadą, jeśli nie masz typu.`
         ] },
         { icon: '🎯', title: 'Punkty za mecz', scoring: true, items: [
-            `Przykład przy wyniku 46:44: typ 46:44 → ${b(s.exact)} · 47:45 → ${b(s.diff)} · 50:40 → ${b(s.winner)} · 44:46 → ${b(0)}.`,
+            `Przykład przy wyniku 46:44: typ 46:44 → ${b(s.exact)} · ${near} → ${b(s.diff)} · 54:36 → ${b(s.winner)} · 44:46 → ${b(0)}.`,
+            tol ? `„Różnica” liczy się z tolerancją ${b(`±${tol} pkt`)}: różnica Twojego typu może się różnić od różnicy meczu najwyżej o ${tol}.` : '',
             `Remis: trafiony remis z innym wynikiem (np. 45:45 przy 44:44) = ${b(s.diff)} pkt. Typ na remis, gdy ktoś wygrał = 0 pkt.`
         ] },
         { icon: '⭐', title: 'Premie', items: [
@@ -446,13 +450,14 @@ function rulesSections() {
 
 function renderRules() {
     const s = D.season.scoring;
-    const tiles = [[s.exact, 'dokładny wynik'], [s.diff, 'zwycięzca + różnica'], [s.winner, 'zwycięzca'], [0, 'pudło']];
+    const tol = Number(s.diffTolerance) || 0;
+    const tiles = [[s.exact, 'dokładny wynik'], [s.diff, `zwycięzca + różnica${tol ? ` ±${tol}` : ''}`], [s.winner, 'zwycięzca'], [0, 'pudło']];
     document.getElementById('rules-content').innerHTML = rulesSections().map(sec => `
     <div class="rule-block">
         <h4 class="rule-title"><span aria-hidden="true">${sec.icon}</span> ${sec.title}</h4>
         ${sec.scoring ? `<div class="grid grid-cols-4 gap-2 text-center mb-2">${tiles.map(([v, t]) => `
             <div class="score-tile"><div class="text-2xl font-black">${v}</div><div class="text-[11px] text-muted leading-tight">${t}</div></div>`).join('')}</div>` : ''}
-        <ul class="rule-list">${sec.items.map(i => `<li>${i}</li>`).join('')}</ul>
+        <ul class="rule-list">${sec.items.filter(Boolean).map(i => `<li>${i}</li>`).join('')}</ul>
     </div>`).join('');
 }
 
