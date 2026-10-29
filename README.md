@@ -50,7 +50,7 @@ npm install
 cp .env.example .env     # uzupełnij MONGODB_URI i ADMIN_PASSWORD
 npm run build:css        # Tailwind -> public/css/app.css (plik jest też w repo)
 npm start                # http://localhost:3000
-npm test                 # 199 testów (jednostkowe, API, 87 scenariuszy), bez bazy
+npm test                 # 200 testów (jednostkowe, API, 88 scenariuszy), bez bazy
 npm run demo             # cała aplikacja na przykładowych danych, BEZ MongoDB (admin: "demo")
 npm run symulacja        # cały sezon w aplikacji + Monte Carlo zasad -> SYMULACJA.md
 npm run symulacja -- --serve   # ...i obejrzyj zakończony sezon (podium, zdrapka mistrza) na :3000
@@ -89,7 +89,9 @@ Instrukcja krok po kroku, bez wiedzy technicznej: **[WDROZENIE.md](WDROZENIE.md)
 4. **Zadania w tle na planie free.** Darmowa instancja zasypia po 15 min, więc wbudowany
    harmonogram wtedy nie działa. Workflow `.github/workflows/cron.yml` co 30 min (10–22 UTC,
    marzec–październik) budzi serwer i wywołuje `POST /api/cron/run`. W GitHub → *Settings → Secrets
-   → Actions* dodaj `APP_URL` (adres z Render) i `CRON_SECRET` (skopiuj z Render).
+   → Actions* dodaj `APP_URL` (adres z Render) i `CRON_SECRET` (skopiuj z Render). Ręczne
+   *Run workflow* bez sekretów kończy się błędem — tak sprawdzisz konfigurację (z harmonogramu
+   tylko ostrzeżenie). Ukośnik na końcu adresu i `http://` zamiast `https://` nie przeszkadzają.
    Alternatywy: cron-job.org z tym samym adresem i nagłówkiem `x-cron-secret`, albo plan *Starter*
    (bez usypiania, wtedy wystarczy wbudowany harmonogram).
 

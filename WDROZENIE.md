@@ -106,14 +106,17 @@ wyników. GitHub będzie go budził co 30 minut (marzec–październik, w ciągu
 2. GitHub → repozytorium → zakładka **Settings** (u góry) → z lewej **Secrets and variables** →
    **Actions** → **New repository secret**:
    - Name: `APP_URL`, Secret: adres z Render, np. `https://zuzlowy-typer.onrender.com`
-     (bez ukośnika na końcu) → **Add secret**,
+     → **Add secret**,
    - jeszcze raz **New repository secret**: Name: `CRON_SECRET`, Secret: skopiowana wartość →
      **Add secret**.
 3. GitHub → zakładka **Actions** → z lewej **Zadania typera** → **Run workflow** → **Run workflow**.
-   Po minucie powinien być zielony ✓.
+   Po minucie powinien być zielony ✓ — to znaczy, że serwer się obudził i wykonał zadania.
    Jeśli GitHub pyta o włączenie workflowów, kliknij
    „I understand my workflows, go ahead and enable them”.
-   Czerwony ✗? Kliknij go: błąd `401` oznacza inny `CRON_SECRET` niż w Render.
+   Czerwony ✗? Kliknij go i przeczytaj błąd:
+   - „Brak sekretów” — wróć do punktu 2 (nazwy dokładnie `APP_URL` i `CRON_SECRET`),
+   - `401` — `CRON_SECRET` różni się od tego w Render,
+   - `Could not resolve host` albo `404` — literówka w adresie.
 
 ## Krok 5. Pierwsze kroki w typerze (15 min)
 

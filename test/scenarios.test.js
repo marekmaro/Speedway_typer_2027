@@ -793,6 +793,51 @@ const fresh = id => db.Match.findById(String(id));
         assert.strictEqual((await post('/api/cron/run?job=reminders', {}, { 'x-cron-secret': 'tajny-cron' })).status, 200);
     });
 
+    await test('I2b budzik z GitHuba (cron.yml): bez sekretów ręczne uruchomienie się nie udaje, "/" na końcu adresu nie przeszkadza, zły sekret = błąd', async () => {
+        const { execFile, spawnSync } = require('child_process');
+        if (spawnSync('bash', ['-c', 'command -v curl']).status !== 0) return console.log('     (pominięty: brak bash albo curl)');
+        // prawdziwy skrypt z workflow, uruchomiony tak jak na GitHubie (bash -e)
+        const yml = require('fs').readFileSync(require('path').join(__dirname, '../.github/workflows/cron.yml'), 'utf8').split('\n');
+        const at = yml.findIndex(l => /^\s+run: \|$/.test(l));
+        const indent = yml[at + 1].match(/^\s*/)[0];
+        const lines = [];
+        for (const l of yml.slice(at + 1)) {
+            if (l.trim() && !l.startsWith(indent)) break;
+            lines.push(l.slice(indent.length));
+        }
+        const run = env => new Promise(resolve => execFile('bash', ['-e', '-c', lines.join('\n')], { env: { ...process.env, ...env }, timeout: 30000 },
+            (err, stdout, stderr) => resolve({ code: err ? err.code : 0, out: stdout + stderr })));
+        const scraperEnv = process.env.SCRAPER_URLS;
+        delete process.env.SCRAPER_URLS;
+        process.env.CRON_SECRET = 'tajny-cron';
+        try {
+            const manual = await run({ APP_URL: '', CRON_SECRET: '', GITHUB_EVENT_NAME: 'workflow_dispatch' });
+            assert.strictEqual(manual.code, 1, manual.out);
+            assert.ok(manual.out.includes('::error::Brak sekretów'), manual.out);
+            const scheduled = await run({ APP_URL: '', CRON_SECRET: '', GITHUB_EVENT_NAME: 'schedule' });
+            assert.strictEqual(scheduled.code, 0, scheduled.out);
+            assert.ok(scheduled.out.includes('::warning::Brak sekretów'), scheduled.out);
+
+            const ok = await run({ APP_URL: `${base}/`, CRON_SECRET: 'tajny-cron', GITHUB_EVENT_NAME: 'workflow_dispatch' });
+            assert.strictEqual(ok.code, 0, ok.out);
+            assert.ok(ok.out.includes('"db":') && ok.out.includes('"reminders"'), ok.out);   // obudzony i zadania wykonane
+            const bad = await run({ APP_URL: base, CRON_SECRET: 'zly', GITHUB_EVENT_NAME: 'workflow_dispatch' });
+            assert.notStrictEqual(bad.code, 0, 'zły sekret ma dać czerwony ✗');
+            assert.ok(bad.out.includes('401'), bad.out);
+
+            // adres z http:// - Render przekierowuje (301) na https; POST i sekret mają przejść dalej
+            const redirect = require('http').createServer((req, res) => { res.writeHead(301, { Location: base + req.url }); res.end(); });
+            await new Promise(r => redirect.listen(0, '127.0.0.1', r));
+            try {
+                const moved = await run({ APP_URL: `http://127.0.0.1:${redirect.address().port}`, CRON_SECRET: 'tajny-cron', GITHUB_EVENT_NAME: 'schedule' });
+                assert.strictEqual(moved.code, 0, moved.out);
+                assert.ok(moved.out.includes('"reminders"'), moved.out);
+            } finally { redirect.close(); }
+        } finally {
+            if (scraperEnv !== undefined) process.env.SCRAPER_URLS = scraperEnv;
+        }
+    });
+
     await test('I3 hasło admina w nagłówku (stara furtka) już nie działa', async () => {
         const r = await get('/api/admin/players', { 'x-admin-password': process.env.ADMIN_PASSWORD });
         assert.strictEqual(r.status, 401);
